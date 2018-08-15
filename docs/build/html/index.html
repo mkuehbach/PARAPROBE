@@ -1,0 +1,242 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>1. Getting started &#8212; PARAPROBE 0.1 documentation</title>
+    <link rel="stylesheet" href="_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true,
+        SOURCELINK_SUFFIX: '.txt'
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="In a nutshell" href="basics.html" /> 
+  </head>
+  <body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="basics.html" title="In a nutshell"
+             accesskey="N">next</a> |</li>
+        <li class="nav-item nav-item-0"><a href="#">PARAPROBE 0.1 documentation</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="figure">
+<img alt="_images/PARAPROBEFront_02.png" src="_images/PARAPROBEFront_02.png" />
+</div>
+<div class="line-block">
+<div class="line">PARAPROBE is an MPI/OpenMP/SIMD-parallelized tool for efficient scalable processing of</div>
+<div class="line">Atom Probe Tomography (APT) data targeting back-end integration.</div>
+</div>
+<div class="line-block">
+<div class="line">The source code is developed by Markus Kühbach, currently Postdoc with Franz Roters</div>
+<div class="line">at the Max-Planck-Institut für Eisenforschung GmbH (<a class="reference external" href="https://www.mpie.de">MPIE</a>) in Düsseldorf.</div>
+<div class="line">Feel free to utilize the tool, do not hesitate contacting <a class="reference external" href="https://www.mpie.de/person/51206/2656491">me</a> to suggest</div>
+<div class="line">improvements or desirable features, or simply to report your experiences.</div>
+</div>
+<blockquote>
+<div></div></blockquote>
+<div class="section" id="getting-started">
+<h1>1. Getting started<a class="headerlink" href="#getting-started" title="Permalink to this headline">¶</a></h1>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="basics.html"><strong>In a nutshell</strong></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="basics.html#what-is-paraprobe">What is PARAPROBE?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="basics.html#what-are-the-user-benefits">What are the user benefits?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="basics.html#which-parallelization-concepts-are-employed">Which parallelization concepts are employed?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="basics.html#solid-hpc-background-literature">Solid HPC background literature</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="setup.html"><strong>Setup</strong></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="setup.html#which-operating-system-is-supported">Which operating system is supported?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="setup.html#how-large-datasets-are-supported">How large datasets are supported?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="setup.html#what-are-the-minimum-hardware-requirements">What are the minimum hardware requirements?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="setup.html#which-prerequisites-are-necessary">Which prerequisites are necessary?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="setup.html#how-to-compile">How to compile?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="setup.html#where-to-place-files">Where to place files?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="setup.html#optimization">Optimization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="setup.html#troubleshooting">Troubleshooting?!</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div class="section" id="utilize-productively">
+<h1>2. Utilize productively<a class="headerlink" href="#utilize-productively" title="Permalink to this headline">¶</a></h1>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="input.html"><strong>XML Control File Settings</strong></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="input.html#input">Input</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#analysis-mode">Analysis mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#reconstruction">Reconstruction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#tip-surface-reconstruction">Tip surface reconstruction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#analysis-tasks">Analysis Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#bas-et-al-reconstruction-parameter">Bas et al reconstruction parameter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#smart-pruning">Smart pruning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#descriptive-spatial-statistics-parameter">Descriptive spatial statistics parameter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#clustering-analyses-parameter">Clustering analyses parameter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#visualization-options">Visualization options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#synthetic-tip">Synthetic tip</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="executing.html"><strong>Program execution</strong></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="executing.html#how-to-execute">How to execute</a></li>
+<li class="toctree-l2"><a class="reference internal" href="executing.html#report-runtime-diagnostics">Report runtime diagnostics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="executing.html#benchmarking">Benchmarking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="executing.html#further-details-of-openmp-multi-threading">Further details of OpenMP multi-threading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="executing.html#manage-thread-affinity">Manage thread affinity</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div class="section" id="examples">
+<h1>3. Examples<a class="headerlink" href="#examples" title="Permalink to this headline">¶</a></h1>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="tutorials.html">Video tutorials</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorials.html#contact">Contact</a></li>
+</ul>
+</div>
+</div>
+<div class="section" id="version-history">
+<h1>Version history<a class="headerlink" href="#version-history" title="Permalink to this headline">¶</a></h1>
+<div class="line-block">
+<div class="line"><strong>v0.1</strong> — Initial implementation</div>
+<div class="line-block">
+<div class="line">MPI/OpenMP thread-parallelized spatial range querying and indexing tasks</div>
+<div class="line">CGAL alpha shape tip surface extraction with smart pruning</div>
+<div class="line">OMP-parallelized RDF, 1NN, kNN, Ripley K descriptive spatial statistics</div>
+<div class="line">These can be batch processed using different and multiple type combinations</div>
+<div class="line">As well as multiple kNN settings at a time for each task, descriptive statistics are</div>
+<div class="line">computed both randomized and not randomized with full ion typ pairing flexibility</div>
+<div class="line">OMP-parallelized maximum separation clustering method with dmax parameter sweeping</div>
+</div>
+<div class="line">Beta functionality</div>
+<div class="line-block">
+<div class="line">A posteriori possibility for each dmax single clustering result to relabel the ions</div>
+<div class="line">for excluding clustered ions and guardzone about them from the again</div>
+<div class="line">OMP-parallel a posteriori clustering descriptive spatial statistics</div>
+<div class="line">Synthetic tip generation for benchmarking and testing, exemplary HDF5 I/O.</div>
+</div>
+</div>
+</div>
+<div class="section" id="licence">
+<h1>Licence<a class="headerlink" href="#licence" title="Permalink to this headline">¶</a></h1>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="licence.html"><strong>The project is licenced under the GNU v3.0</strong></a></li>
+</ul>
+</div>
+</div>
+<div class="section" id="references">
+<h1>References<a class="headerlink" href="#references" title="Permalink to this headline">¶</a></h1>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="refs.html"><strong>References</strong></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="refs.html#the-method">The method</a></li>
+<li class="toctree-l2"><a class="reference internal" href="refs.html#third-party-contributions">Third-party contributions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="refs.html#computational-geometry-focused-apt-method-development-by-other-people">Computational geometry focused APT method development by other people</a></li>
+<li class="toctree-l2"><a class="reference internal" href="refs.html#contact">Contact</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div class="section" id="funding">
+<h1>Funding<a class="headerlink" href="#funding" title="Permalink to this headline">¶</a></h1>
+<div class="line-block">
+<div class="line">The author gratefully acknowledges the support from the DFG in the frame of the project BA 4253/2-1</div>
+<div class="line">as well as the provisioning of computing resources by the Max-Planck Gesellschaft.</div>
+</div>
+</div>
+<div class="section" id="questions-contributions">
+<h1>Questions, contributions<a class="headerlink" href="#questions-contributions" title="Permalink to this headline">¶</a></h1>
+<p>Just let me know and contact <a class="reference external" href="https://www.mpie.de/person/51206/2656491">me</a></p>
+<blockquote>
+<div></div></blockquote>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="#">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">1. Getting started</a></li>
+<li><a class="reference internal" href="#utilize-productively">2. Utilize productively</a></li>
+<li><a class="reference internal" href="#examples">3. Examples</a></li>
+<li><a class="reference internal" href="#version-history">Version history</a></li>
+<li><a class="reference internal" href="#licence">Licence</a></li>
+<li><a class="reference internal" href="#references">References</a></li>
+<li><a class="reference internal" href="#funding">Funding</a></li>
+<li><a class="reference internal" href="#questions-contributions">Questions, contributions</a></li>
+</ul>
+
+  <h4>Next topic</h4>
+  <p class="topless"><a href="basics.html"
+                        title="next chapter"><strong>In a nutshell</strong></a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/index.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <div><input type="text" name="q" /></div>
+      <div><input type="submit" value="Go" /></div>
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="basics.html" title="In a nutshell"
+             >next</a> |</li>
+        <li class="nav-item nav-item-0"><a href="#">PARAPROBE 0.1 documentation</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2018, Markus Kuehbach.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.6.7.
+    </div>
+  </body>
+</html>

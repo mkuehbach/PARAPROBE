@@ -1,0 +1,223 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Setup &#8212; PARAPROBE 0.1 documentation</title>
+    <link rel="stylesheet" href="_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true,
+        SOURCELINK_SUFFIX: '.txt'
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="XML Control File Settings" href="input.html" />
+    <link rel="prev" title="In a nutshell" href="basics.html" /> 
+  </head>
+  <body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="input.html" title="XML Control File Settings"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="basics.html" title="In a nutshell"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">PARAPROBE 0.1 documentation</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="setup">
+<h1><strong>Setup</strong><a class="headerlink" href="#setup" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="which-operating-system-is-supported">
+<h2>Which operating system is supported?<a class="headerlink" href="#which-operating-system-is-supported" title="Permalink to this headline">¶</a></h2>
+<p>PARAPROBE is envisioned as a back-end high performance computing (HPC) solution for processing APT datasets.
+Therefore, it targets workstations and computing clusters running Linux. The compilation on a Windows system should in
+principle be technically possible, has so far, though, not been tested.</p>
+</div>
+<div class="section" id="how-large-datasets-are-supported">
+<h2>How large datasets are supported?<a class="headerlink" href="#how-large-datasets-are-supported" title="Permalink to this headline">¶</a></h2>
+<p>Currently, single APT measurements of at most 4.2 billion ions are supported. As of 2018, such successful tip measurement are
+to the best of my knowledge not standard. Please contact <a class="reference external" href="https://www.mpie.de/person/51206/2656491">me</a> if you have larger datasets, I am eager to modify my code to become
+capable as well to handle even such higher ion counts per single measurement.</p>
+<blockquote>
+<div></div></blockquote>
+</div>
+<div class="section" id="what-are-the-minimum-hardware-requirements">
+<h2>What are the minimum hardware requirements?<a class="headerlink" href="#what-are-the-minimum-hardware-requirements" title="Permalink to this headline">¶</a></h2>
+<p><strong>Memory</strong> — data mining APT datasets is 3d point data processing. Therefore, hardware minimum requirements depend primarily and necessarily on the total number of ions. Sufficient system main memory is required to hold the point data and temporary partial duplicates of it during processing. Internally, each ion is represented as a structure of three 32-bit floating point numbers surplus one 32-bit unsigned integer, hence requiring 16B per ion.</p>
+<blockquote>
+<div></div></blockquote>
+<p><strong>CPU</strong> — virtually all modern workstation and cluster computing processors are capable of executing PARAPROBE, yet their cost-benefit-ratio and speed of doing so may differ substantially. Consequently, claiming minimum hardware requirements is pointless.</p>
+<blockquote>
+<div></div></blockquote>
+<p><strong>GPU</strong> — PARAPROBE currently does not utilize GPU parallelism.</p>
+</div>
+<div class="section" id="which-prerequisites-are-necessary">
+<h2>Which prerequisites are necessary?<a class="headerlink" href="#which-prerequisites-are-necessary" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line">PARAPROBE depends on third-party open source software and open source Linux tools.</div>
+<div class="line">Please follow these first steps to assure you have a working system</div>
+<div class="line">and able to compile and execute PARAPROBE.</div>
+</div>
+<ul class="simple">
+<li>Check for a working installation of a <strong>C/C++ build system</strong> including <strong>cmake</strong> and <strong>make</strong>.</li>
+<li>You need a working installation of the <strong>Boost C++ libraries</strong>. Further details about <a class="reference external" href="https://www.boost.org/">Boost</a> here.</li>
+<li>A default installation of Ubuntu in at least version 17.10 provided me with the above-mentioned prerequisites.</li>
+<li>PARAPROBE has been tested to compile with the GNU and the Intel Parallel Studio 2018 compiler.</li>
+<li>You need a working installation of an <a class="reference external" href="https://www.mcs.anl.gov/research/projects/mpi/">MPI</a> (Message Passing Interface) <a class="reference external" href="https://www.mpich.org/downloads/">API</a> library.</li>
+<li>The minimum threading support level of the MPI implementation required is <strong>MPI_THREAD_FUNNELED</strong>.</li>
+<li>MPI libraries are not installed by default. They are available here <a class="reference external" href="https://www.mpich.org/downloads">MPICH</a> .</li>
+<li>PARAPROBE uses the <strong>Computational Geometry Algorithm Library</strong> (<a class="reference external" href="https://doc.cgal.org/latest/Manual/installation.html">CGAL</a>).</li>
+<li>This library requires own prerequisites, at least the two arbitrary precision arithmetic libraries <a class="reference external" href="https://gmplib.org/">GMP</a> and <a class="reference external" href="https://www.mpfr.org/">MPFR</a> .</li>
+<li>Thus, the first step is to prepare these libraries accordingly.</li>
+<li>CGAL can be downloaded CGAL <a class="reference external" href="https://github.com/CGAL/cgal/releases/download/releases%2FCGAL-4.12/CGAL-4.12.tar.xz">here</a></li>
+<li>Next, it is essential to activate the HEADERONLY library mode within the CGAL. Do so by modifying the line containing
+<em>enable cgal header only</em> in the CMakeLists.txt document topmost in the CGAL code folder</li>
+<li>Within the toplevel of the CGAL code folder configure once the library by typing cmake .</li>
+<li>The PARAPROBE CMakeLists.txt should now be able to use the CGAL functionalities.</li>
+</ul>
+<blockquote>
+<div></div></blockquote>
+</div>
+<div class="section" id="how-to-compile">
+<h2>How to compile?<a class="headerlink" href="#how-to-compile" title="Permalink to this headline">¶</a></h2>
+<p>Once all prerequisites are met, proceed to configure and compile PARAPROBE.</p>
+<ul class="simple">
+<li>Download the source from its git repository <strong>https://github.com/mkuehbach/PARAPROBE</strong></li>
+<li><dl class="first docutils">
+<dt>Unpack the repository such that finally the following ends up in a single folder, from now on referred to as the <strong>root</strong> folder.</dt>
+<dd><ul class="first last">
+<li>a <strong>src</strong> subdirectory with the cpp and the h source code files,</li>
+<li>a <strong>build</strong> directory for storing the executable</li>
+<li>a <strong>XML control file</strong>.</li>
+<li>Additionally, check that there is a <strong>CMakeLists.txt</strong> file in the root folder.</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li>You can now rename, if you desire, the root folder to any Linux-conformant name.</li>
+<li>Next, utilize the top section in CMakeList.txt file to choose compiler and specify paths to local Boost and SIMD as well as switch
+on options and give location of HDF5 library if it should be used if in doubt, use OFF. bSIMD and HDF5 are not essential to the program.</li>
+<li>Next, open a console and dive into the <strong>build</strong> directory.</li>
+<li>If you now compile PARAPROBE for the first time type <strong>cmake -DCMAKE_BUILD_TYPE=Release -DCGAL_DIR=LOCALPATH ..</strong>.</li>
+<li>Replace LOCALPATH by the absolute path where the CGAL code folder is on your system.</li>
+<li>Now cmake inspects your system configuration to find compilers and libraries and generates a customized makefile for you.</li>
+<li>Next, or if compiling not for the first time, use this makefile by typing <strong>make</strong> to start the compilation process.</li>
+<li>Warnings about declared but unreferenced variables will appear they can be ignored.</li>
+<li>Upon success, you should now have an <strong>executable</strong> with the name as specified in the CMakeLists.txt within the build.</li>
+<li>Use this executable to perform APT post-processing.</li>
+</ul>
+</div>
+<div class="section" id="where-to-place-files">
+<h2>Where to place files?<a class="headerlink" href="#where-to-place-files" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line">The resulting executable expects the XML control file always in its current location folder!</div>
+<div class="line">Relative indexing is utilized. Other than that restriction, the executable can be renamed and relocated.</div>
+<div class="line">The latter enables PARAPROBE batch queue processing.</div>
+</div>
+</div>
+<div class="section" id="optimization">
+<h2>Optimization<a class="headerlink" href="#optimization" title="Permalink to this headline">¶</a></h2>
+<p>If desired, adjust the level of compiler optimization via the OPTLEVEL variable in the CMakeLists.txt upper section.
+OPTLEVEL “-O0” means no optimization and should be utilized for debugging purposes only, while “-O3” is the maximum and recommended level for production tasks. Improvements between the two extremes vary between a factor of 2 - 5 faster with maximum optimization compared to without.</p>
+</div>
+<div class="section" id="troubleshooting">
+<h2>Troubleshooting?!<a class="headerlink" href="#troubleshooting" title="Permalink to this headline">¶</a></h2>
+<p>If in between the compilation process unrecoverable errors occur, attempt first a <strong>make clean</strong> command.
+If this does not help: Delete everything in the build folder except for the <strong>XML control file</strong> and start over with <strong>cmake -DCMAKE_BUILD_TYPE=Release ..</strong>.</p>
+<p>I faced challenges when attempting to compile the CGAL in header-only mode with the Intel Parallel Suite compilers and tools.
+Therefore, I recommend so far to use the GNU compiler and the MPICH installation.</p>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#"><strong>Setup</strong></a><ul>
+<li><a class="reference internal" href="#which-operating-system-is-supported">Which operating system is supported?</a></li>
+<li><a class="reference internal" href="#how-large-datasets-are-supported">How large datasets are supported?</a></li>
+<li><a class="reference internal" href="#what-are-the-minimum-hardware-requirements">What are the minimum hardware requirements?</a></li>
+<li><a class="reference internal" href="#which-prerequisites-are-necessary">Which prerequisites are necessary?</a></li>
+<li><a class="reference internal" href="#how-to-compile">How to compile?</a></li>
+<li><a class="reference internal" href="#where-to-place-files">Where to place files?</a></li>
+<li><a class="reference internal" href="#optimization">Optimization</a></li>
+<li><a class="reference internal" href="#troubleshooting">Troubleshooting?!</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="basics.html"
+                        title="previous chapter"><strong>In a nutshell</strong></a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="input.html"
+                        title="next chapter"><strong>XML Control File Settings</strong></a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/setup.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <div><input type="text" name="q" /></div>
+      <div><input type="submit" value="Go" /></div>
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="input.html" title="XML Control File Settings"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="basics.html" title="In a nutshell"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">PARAPROBE 0.1 documentation</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2018, Markus Kuehbach.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.6.7.
+    </div>
+  </body>
+</html>

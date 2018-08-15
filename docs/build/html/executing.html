@@ -1,0 +1,196 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Program execution &#8212; PARAPROBE 0.1 documentation</title>
+    <link rel="stylesheet" href="_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true,
+        SOURCELINK_SUFFIX: '.txt'
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Video tutorials" href="tutorials.html" />
+    <link rel="prev" title="XML Control File Settings" href="input.html" /> 
+  </head>
+  <body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="tutorials.html" title="Video tutorials"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="input.html" title="XML Control File Settings"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">PARAPROBE 0.1 documentation</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="program-execution">
+<h1><strong>Program execution</strong><a class="headerlink" href="#program-execution" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="how-to-execute">
+<h2>How to execute<a class="headerlink" href="#how-to-execute" title="Permalink to this headline">¶</a></h2>
+<p>All set? Excellent! Then, you have to prepare your environment to allow thread parallelism.
+Specifically set the OMP_NUM_THREADS environment variable. If sequential execution desired use 1, else
+use a number as high as the number of physical cores, counting hyper-threading core pairs with one core, here
+exemplified for a workstation with 36 physical cores:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">export</span> <span class="n">OMP_NUM_THREADS</span><span class="o">=</span><span class="mi">20</span>
+</pre></div>
+</div>
+<p>Next, modify further your environment to allocate sufficient stack space for the application:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">export</span> <span class="n">ulimit</span> <span class="o">-</span><span class="n">s</span> <span class="n">unlimited</span>
+</pre></div>
+</div>
+<p>Now PARAPROBE can be executed via a single command line call:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">mpiexec</span> <span class="o">-</span><span class="n">n</span> <span class="o">&lt;</span><span class="n">nprocesses</span><span class="o">&gt;</span> <span class="o">&lt;</span><span class="n">paraprobe</span><span class="o">&gt;</span> <span class="o">&lt;</span><span class="n">simid</span><span class="o">&gt;</span> <span class="o">&lt;</span><span class="n">Settings</span><span class="o">.</span><span class="n">xml</span><span class="o">&gt;</span>
+</pre></div>
+</div>
+<p>Or equivalently:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">mpirun</span> <span class="o">-</span><span class="n">np</span> <span class="o">&lt;</span><span class="n">nprocesses</span><span class="o">&gt;</span> <span class="o">&lt;</span><span class="n">paraprobe</span><span class="o">&gt;</span> <span class="o">&lt;</span><span class="n">simid</span><span class="o">&gt;</span> <span class="o">&lt;</span><span class="n">Settings</span><span class="o">.</span><span class="n">xml</span><span class="o">&gt;</span>
+</pre></div>
+</div>
+<p><strong>Please note that the angle brackets must not be typed into the command line as they only mark the input parameter!</strong></p>
+<p>In its current version the following input arguments are required:</p>
+<ul class="simple">
+<li>&lt;nprocesses&gt; How many MPI processes to utilize?</li>
+<li>&lt;paraprobe&gt; Your specific name of the executable.</li>
+<li>&lt;simid&gt; JobID, an unsigned integer to distinguish the results from runs with other settings but the same raw data.</li>
+<li>&lt;Settings.xml&gt; a properly formatted XML control file. The name can be changed as long as the file remains a properly formatted XML file.</li>
+</ul>
+<p><strong>Be careful: if the &lt;simid&gt; value is set to the same value during subsequent runs in the same folder, data will be overwritten without prompting!</strong></p>
+<p>PARAPROBE runs always threaded, i.e. with at least one OpenMP thread. More threads can be used to activate parallelism to speed up the processing.</p>
+</div>
+<div class="section" id="report-runtime-diagnostics">
+<h2>Report runtime diagnostics<a class="headerlink" href="#report-runtime-diagnostics" title="Permalink to this headline">¶</a></h2>
+<p>In particular for debugging and getting to know further information how PARAPROBE performed it is useful to store the console prompt during execution.
+In order to do so execute the program as follows:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="o">&lt;</span><span class="n">regular</span> <span class="n">execution</span> <span class="n">command</span> <span class="k">as</span> <span class="n">shown</span> <span class="n">above</span><span class="o">&gt;</span> <span class="mi">2</span><span class="o">&gt;&amp;</span><span class="mi">1</span> <span class="o">|</span> <span class="n">tee</span> <span class="n">PARAPROBE</span><span class="o">.</span><span class="n">Console</span><span class="o">.</span><span class="n">STDOUTERR</span><span class="o">.</span><span class="n">txt</span>
+</pre></div>
+</div>
+<p>This will instruct to redirect the console output and error verbose into a text file surplus show the results as usual on the console.
+Instead:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="o">&lt;</span><span class="n">regular</span> <span class="n">execution</span> <span class="n">command</span> <span class="k">as</span> <span class="n">shown</span> <span class="n">above</span><span class="o">&gt;</span> <span class="mi">1</span><span class="o">&gt;</span><span class="n">PARAPROBE</span><span class="o">.</span><span class="n">Console</span><span class="o">.</span><span class="n">STDOUT</span><span class="o">.</span><span class="n">txt</span> <span class="mi">2</span><span class="o">&gt;</span><span class="n">PARAPROBE</span><span class="o">.</span><span class="n">Console</span><span class="o">.</span><span class="n">STDERR</span><span class="o">.</span><span class="n">txt</span>
+</pre></div>
+</div>
+<p>will redirect all verbose to separate text files. One for usual output STDOUT. The other one for operating system controlled errors returned by the program STDERR.</p>
+</div>
+<div class="section" id="benchmarking">
+<h2>Benchmarking<a class="headerlink" href="#benchmarking" title="Permalink to this headline">¶</a></h2>
+<p>PARAPROBE has internal functionality to monitor its elapsed time expenditures. After running successfully, this is summarized in the MyProfiling.csv file.</p>
+</div>
+<div class="section" id="further-details-of-openmp-multi-threading">
+<h2>Further details of OpenMP multi-threading<a class="headerlink" href="#further-details-of-openmp-multi-threading" title="Permalink to this headline">¶</a></h2>
+<p>Below is a typical example call which executes the program with 1 MPI process spawning 20 OpenMP threads, reads the settings from MySpecialSettings and marks all results with a consistent ID, 1000 in this case:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">mpiexec</span> <span class="o">-</span><span class="n">n</span> <span class="mi">1</span> <span class="n">paraprobe</span> <span class="mi">1000</span> <span class="n">MySpecialSettings</span><span class="o">.</span><span class="n">xml</span>
+</pre></div>
+</div>
+<p>Please note, setting the environment variable OMP_NUM_THREADS is required only once per active console session, if not working with a different number of threads is desired.
+Please note as well that it is when using Intel CPUs, Hyper-Threading (<a class="reference external" href="https://www.intel.com/content/www/us/en/architecture-and-technology/hyper-threading/hyper-threading-technology.html">HT</a>) cores suggest that twice as many cores could be used as in practice
+should be. The reason is that a hyper-threading core pair is build of two cores which share most of the fastest caches. In effect, the two
+hyper-threading cores will fight for resources when assign individual work packages. For this reasoning, only as many threads as
+real physical core <a href="#id1"><span class="problematic" id="id2">**</span></a>pairs* exist should be instructed using the OMP_NUM_THREADS environment variable.</p>
+<blockquote>
+<div></div></blockquote>
+</div>
+<div class="section" id="manage-thread-affinity">
+<h2>Manage thread affinity<a class="headerlink" href="#manage-thread-affinity" title="Permalink to this headline">¶</a></h2>
+<p>Thread affinity deals with the question whether a thread, once it has been mapped on a CPU core, should always be executed on this core or may
+be relocated to another in an effort to improve global system performance. In fact, if not explicitly instructed otherwise,
+the operating system usually instructs such migration operations during program operation, in particular when multiple user or programs
+work on the same system. Such strategy to improve global system performance, however, may not necessarily mean a performance improvement of the
+actual running PARAPROBE job. Moreover, frequent thread migration reduces PARAPROBE performance owing to re-initialization costs. Namely, once a thread is instructed to migrate, its already allocated cache content will in most cases not exist on the new core. Instead, costly refurnishing of cache content is required. For these reasons, overwriting the operating systems thread affinity policy can be worthwhile to prevent
+the OS from migrating threads across the available cores. One can instruct this explicitly via setting for instance the KMP <a class="reference external" href="https://software.intel.com/en-us/node/522691">AFFINITY</a>
+environment variables when using the Intel compiler or the <a class="reference external" href="https://gcc.gnu.org/onlinedocs/libgomp/GOMP_005fCPU_005fAFFINITY.html">GNU</a> thread affinity policy.</p>
+<blockquote>
+<div></div></blockquote>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#"><strong>Program execution</strong></a><ul>
+<li><a class="reference internal" href="#how-to-execute">How to execute</a></li>
+<li><a class="reference internal" href="#report-runtime-diagnostics">Report runtime diagnostics</a></li>
+<li><a class="reference internal" href="#benchmarking">Benchmarking</a></li>
+<li><a class="reference internal" href="#further-details-of-openmp-multi-threading">Further details of OpenMP multi-threading</a></li>
+<li><a class="reference internal" href="#manage-thread-affinity">Manage thread affinity</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="input.html"
+                        title="previous chapter"><strong>XML Control File Settings</strong></a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="tutorials.html"
+                        title="next chapter">Video tutorials</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/executing.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <div><input type="text" name="q" /></div>
+      <div><input type="submit" value="Go" /></div>
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="tutorials.html" title="Video tutorials"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="input.html" title="XML Control File Settings"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">PARAPROBE 0.1 documentation</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2018, Markus Kuehbach.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.6.7.
+    </div>
+  </body>
+</html>

@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Parameters>
+	<!--for binary choice 0 specifies off, 1 on-->
+	
+	<!--WHAT TYPE OF ANALYSIS TO DO-->
+	<InputFileformat>2</InputFileformat>
+	<!--0 nothing-->
+	<!--1 pos-->
+	<!--2 epos-->
+	<!--3 hdf5-->
+	<!--4 synthetic-->
+	<RAWFilenameIn>R25_33096-v02.epos</RAWFilenameIn>
+	<!-- if Inputtype is not 4 synthetic file ending needs to match-->
+	<!-- the measured APT data the reader is adaptive if ends with epos will read binary epos and change endianness, otherwise rejected-->
+
+	<AnalysisMode>0</AnalysisMode>
+	<!--0 default-->
+	
+	<ReconstructionAlgorithm>3</ReconstructionAlgorithm>
+	<!--0 no reconstruction-->
+	<!--1 accept from synthetic dataset-->
+	<!--2 accept from pos ie x,y,z from pos are taken as ion coor in recon space-->
+	<!--3 accept from epos ie x,y,z from epos are taken as ion coor in recon space-->
+	<!--4 Bas et al. reconstruction requires epos file-->
+	<IdentifyIonType>1</IdentifyIonType>
+	<!--aka ranging based on rrng file specified below-->
+	<RRNGFilenameIn>R25_33096-v02.rrng</RRNGFilenameIn>
+	
+	<SurfaceReconstructionType>0</SurfaceReconstructionType>
+	<!--0 no surface recon-->
+	<!--1 CGAL alphashape ONLY THIS CURRENTLY-->
+	<!--2 CGAL convex hull-->
+	<!--3 marching cube IGL-->
+	<!--4 read existent triangle hull-->
+	<SurfaceFilenameIn>PARAPROBE.SimID.0.TipSurface.vtk</SurfaceFilenameIn>
+	<!--raw file name in and surface need to be same-->
+	
+	<AnalysisSpatDistrType>52</AnalysisSpatDistrType>
+	<!--0 no spatial statistics-->
+	<!--1 radial distribution function-->
+	<!--2 nearest neighbor 1NN-->
+	<!--3 RipleyK-->
+	<!--4 k nearest neighbor with k larger one-->
+	<!--5 multiple k nearest neighbors will allow to compute with one call for instance 2th, 5th, 10th, 50th, 100th, 3333th nearest neighbor-->
+	<!--list all single character numbers of tasks without space in one string to instruct all task at once 2413 will perform RDF 1NN RIPK and KNN as it will 1234-->
+
+	<AnalysisClusteringType>0</AnalysisClusteringType>
+	<!--0 no clustering-->
+	<!--1 DBScan-->
+	<!--2 MaximumSeparationMethod ONLY THIS CURRENTLY-->
+	<!--3 Isosurface-based-->
+	
+
+	<!--RECONSTRUCTION PARAMETER-->
+	<FlightLength>80.0</FlightLength>
+	<!--nm-->
+	<AtomicDensity>60.24</AtomicDensity>
+	<!--atoms/nm^3---9 point 4 7 times 10 to the power of minus 6 m cubic per mol-->
+	<EvaporationField>100.0</EvaporationField>
+	<!--V/nm, fake value was 40-->
+	<!--detection efficiency on (0,1)--->
+	<DetEffMin>0.45</DetEffMin>
+	<DetEffIncr>0.05</DetEffIncr>
+	<DetEffMax>0.55</DetEffMax>
+	<!--field factor-->
+	<KFMin>3.30</KFMin>
+	<KFIncr>0.20</KFIncr>
+	<KFMax>2.00</KFMax>
+	<!--image compression factor-->
+	<ICFMin>1.65</ICFMin>
+	<ICFIncr>0.1</ICFIncr>
+	<ICFMax>1.65</ICFMax>
+
+	<!--SURFACE RECONSTRUCTION PARAMETER if not otherwise mentioned in nanometer-->
+	<AdvIonPruneBinWidthMin>1.0</AdvIonPruneBinWidthMin>
+	<AdvIonPruneBinWidthIncr>1.0</AdvIonPruneBinWidthIncr>
+	<AdvIonPruneBinWidthMax>1.0</AdvIonPruneBinWidthMax>
+	<DebugComputeDistance>0</DebugComputeDistance>
+	<!--0 off, 1 on-->
+
+	<!--probing to at least max if max is integer multiple of radius 0 plus integer times incr otherwise probing to next integer-->
+	
+	<!--DESCRIPTIVE SPATIAL STATISTICS ANALYSIS PARAMETER-->
+	<DescrStatTasksCode>Al,Al;AlMn,AlMn</DescrStatTasksCode>
+	<SpatStatRadiusMin>0.00</SpatStatRadiusMin>	
+	<SpatStatRadiusIncr>0.1</SpatStatRadiusIncr>
+	<SpatStatRadiusMax>2.50</SpatStatRadiusMax>
+	<!--values in nanometer ie 0.0, 0.1, 10.0 means bin on 0.0 to at most 10.0 nm with 0.1 nm step-->
+	<SpatStatKNNOrder>10</SpatStatKNNOrder>
+	<!--which kth order nearest neighbor is desired if mode is nearest neighbor KNNOrder always one else picks kth if existent-->
+	<SpatStatMKNNCode>1;10;50;100;1000</SpatStatMKNNCode>
+	<!--semicolon separated code of which kth order nearest neighbor is desired if mode is multi KNN-->
+	<SpatStatAdditionalLabelRandomization>0</SpatStatAdditionalLabelRandomization>
+	<!--if 1 rerun all task with labels randomized-->
+
+	<!--each individual descr analysis having target type and commaseparated against which types to test if not all X semicolon next task-->
+	<!--ie when FeMnC set several NN (Fe against Fe only, against all, against Mn, against C only one needs Fe,Fe;Fe,X;Fe,Mn;Fe,C-->
+
+	<!--CLUSTERING ANALYSIS PARAMETER-->
+	<ClusteringTasksCode>Al,Al</ClusteringTasksCode>
+	<!--see comment above for DescrStatTaskCode-->
+	<!--minimum number of ions included for cluster to be counted as valid Nmin includes central point-->
+	<ClustMaxSepDmaxMin>0.50</ClustMaxSepDmaxMin>
+	<ClustMaxSepDmaxIncr>0.10</ClustMaxSepDmaxIncr>
+	<ClustMaxSepDmaxMax>0.50</ClustMaxSepDmaxMax>
+	<!--in nm for each clustering task individual clustering analyses with different dmax in the aforementioned range are done-->
+	<ClustMaxSepNmin>5</ClustMaxSepNmin>
+	<!--currently neither dilatation nor erosion is applied-->
+	<ClustAPosterioriSpatStat>0</ClustAPosterioriSpatStat>
+	<!--if 1 perform a spatial distribution analysis on the clustered ions afterwards-->
+
+	<!--PLOTING AND IO OPTIONS switched on if 1 switched off for all other values-->
+	<IOReconstruction>0</IOReconstruction>
+	<IOTriangulation>0</IOTriangulation>
+	<IOHKFilteredIons>0</IOHKFilteredIons>
+	<IOHKRawClusterID>0</IOHKRawClusterID>
+	<IOIonTipSurfDistances>0</IOIonTipSurfDistances>
+
+	<!--TIP SYNTHESIS-->
+	<SimRelBottomRadius>0.10</SimRelBottomRadius>
+	<SimRelTopRadius>0.05</SimRelTopRadius>
+	<SimRelBottomCapHeight>0.05</SimRelBottomCapHeight>
+	<SimRelTopCapHeight>0.05</SimRelTopCapHeight>
+	<!--in multiples of desired tip conical frustum height H which is computed automatically based on tip relative spacing-->
+	<SimMatrixLatticeConstant>0.404</SimMatrixLatticeConstant>
+	<!--in nanometer, currently fcc single crystalline lattice supported only-->
+	<SimNumberOfAtoms>2.0e6</SimNumberOfAtoms>
+	<!--how many atoms should be contained in the synthesized tip not accounting for detector eff-->
+	<SimDetectionEfficiency>1.0</SimDetectionEfficiency>
+	<SimFiniteSpatResolutionX>0.000</SimFiniteSpatResolutionX>
+	<SimFiniteSpatResolutionY>0.000</SimFiniteSpatResolutionY>
+	<SimFiniteSpatResolutionZ>0.000</SimFiniteSpatResolutionZ>
+	<!--variance of normal distributed scatter about ideal lattice position in nanometer-->
+	<SimNumberOfCluster>269.0</SimNumberOfCluster>	
+	<SimClusterRadiusMean>2.0</SimClusterRadiusMean>
+	<SimClusterRadiusSigmaSqr>0.1</SimClusterRadiusSigmaSqr>
+	<!--BE CAREFUL currently distribution parameter not the mean and variance in nanometer-->
+</Parameters>

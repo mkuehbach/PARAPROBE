@@ -1,0 +1,7 @@
+go into build folder
+	cmake -DCMAKE_BUILD_TYPE=Debug -DCGAL_DIR=/home/m.kuehbach/cgal/CGAL-4.11.3 ..
+	make
+
+execute
+	mpirun -np 1 paraprobe_maws30 uint32 parameter.xml
+

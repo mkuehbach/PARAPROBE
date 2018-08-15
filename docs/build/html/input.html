@@ -1,0 +1,392 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>XML Control File Settings &#8212; PARAPROBE 0.1 documentation</title>
+    <link rel="stylesheet" href="_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true,
+        SOURCELINK_SUFFIX: '.txt'
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Program execution" href="executing.html" />
+    <link rel="prev" title="Setup" href="setup.html" /> 
+  </head>
+  <body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="executing.html" title="Program execution"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="setup.html" title="Setup"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">PARAPROBE 0.1 documentation</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="xml-control-file-settings">
+<h1><strong>XML Control File Settings</strong><a class="headerlink" href="#xml-control-file-settings" title="Permalink to this headline">¶</a></h1>
+<p>The entire datamining is controlled by a single control parameter settings XML file.</p>
+<div class="section" id="input">
+<h2>Input<a class="headerlink" href="#input" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line"><strong>InputFileformat</strong></div>
+<div class="line-block">
+<div class="line">Determines where the rawdata come from</div>
+<div class="line">0, debug, nothing</div>
+<div class="line">1, POS</div>
+<div class="line">2, EPOS</div>
+<div class="line">3, HDF5 use only to reread existent synthetic dataset and ReconstructionAlgorithm 2</div>
+<div class="line">4, synthetic dataset</div>
+</div>
+<div class="line"><strong>RAWFilenameIn</strong></div>
+<div class="line-block">
+<div class="line">Specifies the input file filename an ending is necessary. It can be .pos or .epos</div>
+</div>
+</div>
+</div>
+<div class="section" id="analysis-mode">
+<h2>Analysis mode<a class="headerlink" href="#analysis-mode" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line"><strong>AnalysisMode</strong></div>
+<div class="line-block">
+<div class="line">0, default</div>
+</div>
+</div>
+</div>
+<div class="section" id="reconstruction">
+<h2>Reconstruction<a class="headerlink" href="#reconstruction" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line"><strong>ReconstructionAlgorithm</strong></div>
+<div class="line-block">
+<div class="line">Determines the location of the ions in the reconstruction space</div>
+<div class="line">0, no reconstruction</div>
+<div class="line">1, accept x,y,z from synthetic dataset demands InputFileformat 1</div>
+<div class="line">2, accept x,y,z coordinates from the POS file</div>
+<div class="line">3, accept x,y,z coordinates from the EPOS file</div>
+<div class="line">4, perform common Bas et al. reconstruction based on EPOS file</div>
+</div>
+<div class="line"><strong>IdentifyIonType</strong></div>
+<div class="line-block">
+<div class="line">If other than 0, ranging is performed, if invalid range file or set to 0 all ions are assigned a default type</div>
+</div>
+<div class="line"><strong>RRNGFilenameIn</strong></div>
+<div class="line-block">
+<div class="line">Specifies a rrng-format-conformant range file with which to convert mass-to-charge to ion type aka ranging</div>
+</div>
+</div>
+</div>
+<div class="section" id="tip-surface-reconstruction">
+<h2>Tip surface reconstruction<a class="headerlink" href="#tip-surface-reconstruction" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line"><strong>SurfaceReconstructionType</strong></div>
+<div class="line-block">
+<div class="line">Determines whether or not and if so which tip surface reconstruction model to apply</div>
+<div class="line">0, no surface reconstruction</div>
+<div class="line">1, alpha shape using the CGAL library and its optimal alpha value to get a solid to report an alpha shape</div>
+<div class="line">4, read existent triangle hull from SurfaceFilenameIn file</div>
+</div>
+<div class="line"><strong>SurfaceFilenameIn</strong></div>
+<div class="line-block">
+<div class="line">Specifies a VTK file containing tip surface triangle hull information when using option <strong>SurfaceReconstructionType</strong> 4</div>
+</div>
+</div>
+</div>
+<div class="section" id="analysis-tasks">
+<h2>Analysis Tasks<a class="headerlink" href="#analysis-tasks" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line"><strong>AnalysisSpatDistrType</strong></div>
+<div class="line-block">
+<div class="line">Specifies which descriptive spatial statistics should be computed.</div>
+<div class="line">Multiple single character numbers can be provided to instruct multiple analyses, eg 42 will do knearest and nearest neighbor</div>
+<div class="line">0, nothing</div>
+<div class="line">1, radial distribution function</div>
+<div class="line">2, nearest neighbor</div>
+<div class="line">3, Ripley K</div>
+<div class="line">4, k nearest neighbors</div>
+<div class="line">5, multiple k nearest neighbors</div>
+</div>
+</div>
+<div class="line-block">
+<div class="line"><strong>AnalysisClusteringType</strong></div>
+<div class="line-block">
+<div class="line">Specifies which clustering algoritm to use</div>
+<div class="line">0, nothing</div>
+<div class="line">2, maximum separation method</div>
+</div>
+</div>
+</div>
+<div class="section" id="bas-et-al-reconstruction-parameter">
+<h2>Bas et al reconstruction parameter<a class="headerlink" href="#bas-et-al-reconstruction-parameter" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line-block">
+<div class="line">Optional when using reconstruction mode Bas et al</div>
+</div>
+<div class="line"><strong>FlightLength</strong></div>
+<div class="line-block">
+<div class="line">In nanometer, instrument dependent</div>
+</div>
+<div class="line"><strong>AtomicDensity</strong></div>
+<div class="line-block">
+<div class="line">In atoms per cubic nanometer</div>
+</div>
+<div class="line"><strong>EvaporationField</strong></div>
+<div class="line-block">
+<div class="line">In volt per nanometer</div>
+</div>
+<div class="line"><strong>DetEffMin</strong></div>
+<div class="line"><strong>DetEffIncr</strong></div>
+<div class="line"><strong>DetEffMax</strong></div>
+<div class="line-block">
+<div class="line">Specifies range of detector efficiency minimum, increment, maximum, respectively, physically restricted on (0,1)</div>
+</div>
+<div class="line"><strong>KFMin</strong></div>
+<div class="line"><strong>KFIncr</strong></div>
+<div class="line"><strong>KFMax</strong></div>
+<div class="line-block">
+<div class="line">Specifies range of kf factor minimum, increment, maximum, respectively</div>
+</div>
+<div class="line"><strong>ICFMin</strong></div>
+<div class="line"><strong>ICFIncr</strong></div>
+<div class="line"><strong>ICFMax</strong></div>
+<div class="line-block">
+<div class="line">Specifies range of ICF factor</div>
+</div>
+</div>
+</div>
+<div class="section" id="smart-pruning">
+<h2>Smart pruning<a class="headerlink" href="#smart-pruning" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line">A technique to identify ions close to the tip surface and dominant poles to avoid downsampling but speed up surface reconstruction.</div>
+<div class="line"><strong>AdvIonPruningBinWidthMin</strong></div>
+<div class="line"><strong>AdvIonPruningBinWidthIncr</strong></div>
+<div class="line"><strong>AdvIonPruningBinWidthMax</strong></div>
+<div class="line-block">
+<div class="line">Specifies range of rectangular binning bin width in nanometer with which to smartly prune the ion cloud</div>
+<div class="line">before passing candidate points to CGAL to speed up and perform memory leaner surface reconstruction</div>
+</div>
+<div class="line"><strong>DebugComputeDistance</strong></div>
+<div class="line-block">
+<div class="line">0 no distance computation to tip surface triangle hull may introduce bias</div>
+<div class="line">1 exact distance computation to tip surface triangle hull all ions up to SpatStatRadiusMax from the surface</div>
+</div>
+</div>
+</div>
+<div class="section" id="descriptive-spatial-statistics-parameter">
+<h2>Descriptive spatial statistics parameter<a class="headerlink" href="#descriptive-spatial-statistics-parameter" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line"><strong>DescrStatTaskCode</strong></div>
+<div class="line-block">
+<div class="line">A semicolon-separated list of string-based codes which analyses on ion types to conduct. Each analysis task, string, requires at least one central ion type string and at least one environment neighboring ion type string both as specified in the rrng rangefile. Multiple central ions in the central ion string can be combined in the analysis against multiple ions in the environment string. For example Al,Al;Ga,Ga will instruct two tasks. The first Al ions against only Al ions as neighbors, the second Gallium against only Gallium. A more complex multiple ion type example is as such AlMn,AlMn;GaMn,GaMn It will instruct in the first analysis to probe Al or Mn as central ions and takes either Al or Mn in the environment, similarly the second Ga or Mn as central against neighboring ions of type either Ga or Mn.</div>
+</div>
+<div class="line"><strong>SpatStatRadiusMin</strong></div>
+<div class="line"><strong>SpatStatRadiusIncr</strong></div>
+<div class="line"><strong>SpatStatRadiusMax</strong></div>
+<div class="line-block">
+<div class="line">Specifies in nanometer the range of search sphere radii in which to conduct the analyses. Increment needs to be an integer multiple of SpatStatRadiusMax</div>
+</div>
+<div class="line"><strong>SpatStatKNNOrder</strong></div>
+<div class="line-block">
+<div class="line">Specifies k for AnalysisSpatDistrType mode 4, output will use C style reporting i.e. order 1 is reported as 0</div>
+</div>
+<div class="line"><strong>SpatStatMKNNCode</strong></div>
+<div class="line-block">
+<div class="line">Specifies a semicolon separated list of only non-negative integer values which kth order nearest neighbors should be computed to the central ion, allows to define combinations like 1;2;5;10;100;1000</div>
+</div>
+<div class="line"><strong>SpatStatAdditionalLabelRandomization</strong></div>
+<div class="line-block">
+<div class="line">If set to 1 allows to randomize all ion type labels across point cloud and rerun clustering analysis against, otherwise no randomization done. Applied randomizations are reset after the analysis to not invalidate the data set.</div>
+</div>
+</div>
+</div>
+<div class="section" id="clustering-analyses-parameter">
+<h2>Clustering analyses parameter<a class="headerlink" href="#clustering-analyses-parameter" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line"><strong>ClusteringTaskCode</strong></div>
+<div class="line-block">
+<div class="line">Syntax is the same as <strong>DescrStatTaskCode</strong>, different tasks can be defined.</div>
+</div>
+<div class="line"><strong>ClustMaxSepDmaxMin</strong></div>
+<div class="line"><strong>ClustMaxSepDmaxIncr</strong></div>
+<div class="line"><strong>ClustMaxSepDmaxMax</strong></div>
+<div class="line-block">
+<div class="line">Specifies in nanometer the range and stepping of the Dmax parameter used to perform a set of independent maximum separation clustering analyses with different Dmax values but same Nmin.</div>
+</div>
+<div class="line"><strong>ClustMaxSepNmin</strong></div>
+<div class="line-block">
+<div class="line">Minimum number of ions <strong>inclusive/exclusive</strong> to consider a cluster.</div>
+</div>
+<div class="line"><strong>ClustAPosterioriSpatStat</strong></div>
+<div class="line-block">
+<div class="line">If 1 perform a spatial distribution analysis on the clustered ions after the clustering analysis, this support is in beta stage</div>
+</div>
+</div>
+</div>
+<div class="section" id="visualization-options">
+<h2>Visualization options<a class="headerlink" href="#visualization-options" title="Permalink to this headline">¶</a></h2>
+<p>If set to value 1 switched on, if set to 0 switched off</p>
+<div class="line-block">
+<div class="line"><strong>IOReconstruction</strong></div>
+<div class="line-block">
+<div class="line">Write ion positions and ranging information to VTK file</div>
+</div>
+<div class="line"><strong>IOTriangulation</strong></div>
+<div class="line-block">
+<div class="line">Write tip surface triangle hull into VTK file</div>
+</div>
+<div class="line"><strong>IOHKFilteredIons</strong></div>
+<div class="line-block">
+<div class="line">Write candidate ion positions and ranging information to VTK file</div>
+</div>
+<div class="line"><strong>IOHKClusterID</strong></div>
+<div class="line-block">
+<div class="line">Write smart pruning bin information to binary file, unsigned int x+yNX+zNXY implicitly encoded</div>
+</div>
+<div class="line"><strong>IOIonTipSurfDistances</strong></div>
+<div class="line-block">
+<div class="line">Write distance of ions to surface to VTK file</div>
+</div>
+</div>
+</div>
+<div class="section" id="synthetic-tip">
+<h2>Synthetic tip<a class="headerlink" href="#synthetic-tip" title="Permalink to this headline">¶</a></h2>
+<p>Parameter specifying geometry and size of synthetic tip. Shape is conical frustum with spherical cap on top and spherical cap cut out at the bottom.
+So far the support for tip geometry is simplistic defining hardcoded single-crystalline pure Al tip with Al3Sc precipitates.</p>
+<div class="line-block">
+<div class="line"><strong>SimRelBottomRadius</strong></div>
+<div class="line"><strong>SimRelTopRadius</strong></div>
+<div class="line"><strong>SimRelBottomCapHeight</strong></div>
+<div class="line-block">
+<div class="line">Only frustum height</div>
+</div>
+<div class="line"><strong>SimRelTopCapHeight</strong></div>
+<div class="line-block">
+<div class="line">All four relative to frustum height ie. restricted on 0,1</div>
+</div>
+<div class="line"><strong>SimMatrixLatticeConstant</strong></div>
+<div class="line-block">
+<div class="line">Currently aluminium single-crystalline pillar.</div>
+</div>
+<div class="line"><strong>SimNumberOfAtoms</strong></div>
+<div class="line-block">
+<div class="line">How many ions assuming full efficiency.</div>
+</div>
+<div class="line"><strong>SimDetectionEfficiency</strong></div>
+<div class="line-block">
+<div class="line">Fraction of NumberOfAtoms to place, sampling randomly MersenneTwister</div>
+</div>
+<div class="line"><strong>SimFiniteSpatResolutionX</strong></div>
+<div class="line"><strong>SimFiniteSpatResolutionY</strong></div>
+<div class="line"><strong>SimFiniteSpatResolutionZ</strong></div>
+<div class="line-block">
+<div class="line">Sigma parameter of normal distribution about lattice position by means of which ion is displaced about ideal position, in nanometer</div>
+</div>
+<div class="line"><strong>SimNumberOfCluster</strong></div>
+<div class="line-block">
+<div class="line">How many Al3Sc cluster to place in bounding box about the tip</div>
+</div>
+<div class="line"><strong>SimClusterRadiusMean</strong></div>
+<div class="line"><strong>SimClusterRadiusSigmaSqr</strong></div>
+<div class="line-block">
+<div class="line">Lognormal distribution parameter NOT expectation value and variance for cluster size distribution, currently all cluster same size mean, in nanometer</div>
+</div>
+</div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#"><strong>XML Control File Settings</strong></a><ul>
+<li><a class="reference internal" href="#input">Input</a></li>
+<li><a class="reference internal" href="#analysis-mode">Analysis mode</a></li>
+<li><a class="reference internal" href="#reconstruction">Reconstruction</a></li>
+<li><a class="reference internal" href="#tip-surface-reconstruction">Tip surface reconstruction</a></li>
+<li><a class="reference internal" href="#analysis-tasks">Analysis Tasks</a></li>
+<li><a class="reference internal" href="#bas-et-al-reconstruction-parameter">Bas et al reconstruction parameter</a></li>
+<li><a class="reference internal" href="#smart-pruning">Smart pruning</a></li>
+<li><a class="reference internal" href="#descriptive-spatial-statistics-parameter">Descriptive spatial statistics parameter</a></li>
+<li><a class="reference internal" href="#clustering-analyses-parameter">Clustering analyses parameter</a></li>
+<li><a class="reference internal" href="#visualization-options">Visualization options</a></li>
+<li><a class="reference internal" href="#synthetic-tip">Synthetic tip</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="setup.html"
+                        title="previous chapter"><strong>Setup</strong></a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="executing.html"
+                        title="next chapter"><strong>Program execution</strong></a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/input.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <div><input type="text" name="q" /></div>
+      <div><input type="submit" value="Go" /></div>
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="executing.html" title="Program execution"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="setup.html" title="Setup"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">PARAPROBE 0.1 documentation</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2018, Markus Kuehbach.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.6.7.
+    </div>
+  </body>
+</html>
