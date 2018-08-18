@@ -289,6 +289,8 @@ void solver::surface_distancing2()
 	//check if a triangle hull exists at all
 	bool hullexists = ( surf->tipsurface.size() > 0 ) ? true : false;
 
+	cout << "HullStatus ___" << hullexists << "___ tipsurface.size() " << surf->tipsurface.size() << endl;
+
 	//##MK::DEBUG even when it does do  not compute distances e.g. for speeding up debugging
 	if ( Settings::DebugComputeDistance == false ) {
 		hullexists = false;
@@ -3424,20 +3426,31 @@ void horderdist::report_apriori_descrstat2( const long tsktype, const string whi
 			sslog << "" << ";" << hist.cnts_highest << ";;;\n";
 		}
 	}
-	if ( tsktype == E_NEAREST_NEIGHBOR ) {
-		sslog << "1NN\n";
-		sslog << "BinEnd(r);Counts\n";
-		sslog << "nm;1\n";
-		sslog << "BinEnd(r);Counts\n"; //we report binends and accumulated counts
+	if ( tsktype == E_NEAREST_NEIGHBOR || tsktype == E_KNN || tsktype == E_MKNN ) {
+		if ( tsktype == E_NEAREST_NEIGHBOR )	sslog << "1NN\n";
+		if ( tsktype == E_KNN )					sslog << to_string(Settings::SpatStatKNNOrder+1) << "NN\n";
+		if ( tsktype == E_MKNN )				sslog << whichmetric << "\n";
+
+		sslog << "BinEnd(r);Counts;ECDFon[BinMinBinMax];CDFon[BinMinBinMax]\n";
+		sslog << "nm;1;1;1\n";
+		sslog << "BinEnd(r);Counts;ECDFon[BinMinBinMax];CDFon[BinMinBinMax]\n"; //we report binends and accumulated counts
 
 		//below hist.start() lower tail dump
-		sslog << hist.start() << ";" << hist.cnts_lowest << "\n";
-		//on[ ) interval
+		sslog << hist.start() << ";" << hist.cnts_lowest << ";;\n";
+
+		//get cumulative sum on [ ) interval
+		apt_real cum_sum = 0.f;
+		for( unsigned int b = 0; b < hist.bincount(); ++b) { cum_sum += hist.report(b); }
+
+		apt_real sum = 0.f;
 		for( unsigned int b = 0; b < hist.bincount(); ++b, bend += hist.width() ) {
-			sslog << bend << ";" << hist.report(b) << "\n";
+			sum += hist.report(b);
+			apt_real csum = (cum_sum > EPSILON) ? (sum / cum_sum) : 0.f;
+			sslog << bend << ";" << hist.report(b) << ";" << sum << ";" << csum << "\n";
 		}
+
 		//above hist.end() upper tail dump
-		sslog << "" << ";" << hist.cnts_highest << "\n";
+		sslog << "" << ";" << hist.cnts_highest << ";;\n";
 	}
 	if ( tsktype == E_RIPLEYK ) {
 		sslog << "BinEnd(r);AccumulatedCounts\n";
@@ -3455,36 +3468,7 @@ void horderdist::report_apriori_descrstat2( const long tsktype, const string whi
 		//above hist.end() upper tail dump
 		sslog << "" << ";" << hist.cnts_highest << "\n";
 	}
-	if ( tsktype == E_KNN ) {
-		sslog << to_string(Settings::SpatStatKNNOrder+1) << "NN\n";
-		sslog << "BinEnd(r);Counts\n";
-		sslog << "nm;1\n";
-		sslog << "BinEnd(r);Counts\n"; //we report binends and accumulated counts
 
-		//below hist.start() lower tail dump
-		sslog << hist.start() << ";" << hist.cnts_lowest << "\n";
-		//on[ ) interval
-		for( unsigned int b = 0; b < hist.bincount(); ++b, bend += hist.width() ) {
-			sslog << bend << ";" << hist.report(b) << "\n";
-		}
-		//above hist.end() upper tail dump
-		sslog << "" << ";" << hist.cnts_highest << "\n";
-	}
-	if ( tsktype == E_MKNN ) {
-		sslog << whichmetric << "\n";
-		sslog << "BinEnd(r);Counts\n";
-		sslog << "nm;1\n";
-		sslog << "BinEnd(r);Counts\n"; //we report binends and accumulated counts
-
-		//below hist.start() lower tail dump
-		sslog << hist.start() << ";" << hist.cnts_lowest << "\n";
-		//on[ ) interval
-		for( unsigned int b = 0; b < hist.bincount(); ++b, bend += hist.width() ) {
-			sslog << bend << ";" << hist.report(b) << "\n";
-		}
-		//above hist.end() upper tail dump
-		sslog << "" << ";" << hist.cnts_highest << "\n";
-	}
 	sslog.flush();
 	sslog.close();
 }
@@ -3624,11 +3608,17 @@ dbscanres clustertask::hpdbscan( const apt_real d, const size_t Nmin, const unsi
 
 	//grab an already vxlized representation of the tip and use it to remove bias in the precip size distro
 	//by not reporting precipitates that span beyond the tip inside
-	bool* tipinside = boss->owner->binner->IsInside;
-	sqb tipaabb = boss->owner->binner->vxlgrid;
+	//bool* tipinside = boss->owner->binner->IsInside;
+	//sqb tipaabb = boss->owner->binner->vxlgrid;
 
 	//summarize clustering analysis
-	dbscanres N = scanner.summarize( mission, tipinside, tipaabb, ions_filtered, boss->owner->owner->mypse.get_maxtypeid(), tskid, runid );
+	//dbscanres N = scanner.summarize( mission, tipinside, tipaabb, ions_filtered, boss->owner->owner->mypse.get_maxtypeid(), tskid, runid );
+	dbscanres N = scanner.summarize( 	mission,
+										boss->owner->binner->IsInside,
+										boss->owner->binner->vxlgrid,
+										ions_filtered,
+										boss->owner->owner->mypse.get_maxtypeid(),
+										tskid, runid );
 	N.Nmin = Nmin;
 	N.Dmax = d;
 

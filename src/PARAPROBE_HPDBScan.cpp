@@ -262,10 +262,12 @@ Space::Space(Pointz &points, float epsilon) :
 
     //##MK::this is a workaround for datasets so large that prod_i=1,3 dims_i/epsilon_i exceeds 10^DIGITS buckets!
     float use_this_eps = epsilon;
-    aabb3d dim = aabb3d( -F32MX, F32MX, -F32MX, F32MX, -F32MX, F32MX );
+    aabb3d dim = aabb3d( F32MX, F32MI, F32MX, F32MI, F32MX, F32MI );
 
     if ( this->probeDimensions( epsilon, dim) == false )
-    	use_this_eps = 0.4; //nm
+    	use_this_eps = 0.4; //##MK::empirical minimum in nm
+    else
+    	use_this_eps = epsilon;
 
     this->computeDimensions(use_this_eps, dim);
     this->computeCells(use_this_eps);
@@ -329,14 +331,14 @@ void Space::computeCells(float epsilon)
 
 bool Space::probeDimensions(float epsilon, aabb3d & dims )
 {
-    aabb3d glim = aabb3d( -F32MX, F32MX, -F32MX, F32MX, -F32MX, F32MX );
+    aabb3d glim = aabb3d( F32MX, F32MI, F32MX, F32MI, F32MX, F32MI );
 
 	//compute dimensions in parallel using threadlocal aabb3d mylim and fuse in critical
 	cout << "\tComputing Dimensions... " << endl;
 
 	#pragma omp parallel shared(glim)
     {
-    	aabb3d mylim = aabb3d( -F32MX, F32MX, -F32MX, F32MX, -F32MX, F32MX );
+    	aabb3d mylim = aabb3d( F32MX, F32MI, F32MX, F32MI, F32MX, F32MI );
     	#pragma omp for nowait
     	for( size_t iter = 0; iter < this->m_points.size(); ++iter ) {
     		const auto& point = this->m_points[iter];
@@ -384,6 +386,9 @@ void Space::computeDimensions(float epsilon, aabb3d & dims )
 {
     this->m_minimum = p3dm1( dims.xmi, dims.ymi, dims.zmi, UNKNOWNTYPE );
     this->m_maximum = p3dm1( dims.xmx, dims.ymx, dims.zmx, UNKNOWNTYPE );
+
+    cout << "m_minimum xyz " << this->m_minimum.x << ";" << this->m_minimum.y << ";" << this->m_minimum.z << endl;
+    cout << "m_maximum xyz " << this->m_maximum.x << ";" << this->m_maximum.y << ";" << this->m_maximum.z << endl;
 
     size_t cells;
     cells = (size_t) ceil((this->m_maximum.x - this->m_minimum.x) / epsilon);
@@ -788,7 +793,7 @@ Rules HPDBSCAN::localDBSCAN(const Space& space, const float epsilon, const size_
     return rules;
 }
 
-dbscanres HPDBSCAN::summarize( TypeSpecDescrStat const & tskdetails, bool* const interior, sqb const vgrd, vector<p3dm1> & ioncloud,
+dbscanres HPDBSCAN::summarize( TypeSpecDescrStat const & tskdetails, bool const * interior, sqb & vgrd, vector<p3dm1> & ioncloud,
 		const unsigned int maxtypeid, const unsigned int tid, const unsigned int rid )
 {
     std::unordered_set<size_t> clusters;
@@ -839,9 +844,9 @@ dbscanres HPDBSCAN::summarize( TypeSpecDescrStat const & tskdetails, bool* const
         	continue;
         else { //add ion to its cluster
         	auto it = cid2idx.find(cluster);
-        	if ( it != cid2idx.end() ) {
+        	if ( it != cid2idx.end() ) { //if DbScan cluster ID exists
         		nanogod.precipitates.at( it->second ).n++;
-        		nanogod.precipitates.at( it->second ).members.push_back( this->m_points[i] );
+        		nanogod.precipitates.at( it->second ).members.push_back( this->m_points[i] ); //does not throw
         		//these.at( cid2idx.at(cluster) ).members.push_back( m_points.at(i) ); //throws
         	}
         }
@@ -962,30 +967,25 @@ clusterHdl::~clusterHdl()
 }
 
 
-void clusterHdl::boundary_contact_analysis( bool* const inside, sqb const & smartgrd )
+void clusterHdl::boundary_contact_analysis( bool const * inside, sqb & smartgrd )
 {
 	//MK::go through all my precipitates and check whether they with respect to the binning grd
 	//and the binarized 3d indicator inside protrude outside the inside
-	for(auto it = precipitates.begin(); it != precipitates.end(); it++) {
-		//it->n = it->members.size();
+	for( auto it = precipitates.begin(); it != precipitates.end(); ++it ) {
 
-		//for all points forming the cluster check for protrusion outside the inside
-		vector<p3dm1> const & these = it->members;
-
-		/*
-		for(size_t mb = 0; mb < these.size(); mb++) {
-			p3dm1 pp = these.at(mb);
-			size_t cxyz = smartgrd.where( pp );
+		//for all points forming the cluster check for protrusion outside the inside volume of the tip to identify whether the cluster makes contact with the tip boundary
+		//and therefore should better be excluded
+		vector<p3dm1> & these = it->members;
+		for( auto mb = these.begin(); mb != these.end(); ++mb ) {
+			size_t cxyz = smartgrd.where( *mb );
 			if ( inside[cxyz] == true ) {
 				continue;
 			}
 			else {
 				it->set_boundary_precipitate();
-				break;
+				break; //test members until either found the first making contact therefore flagging the precipitate as boundary contact
 			}
-		} //test members until all done or one protrude outside
-		*/
-
+		} //or confirm that no member lays in tip boundary voxel therefore precipitate is inside
 	} //test all precipitates
 }
 
@@ -1004,23 +1004,30 @@ void clusterHdl::report_size_distr( const string whichtarget, const string again
 	}
 
 	sslog.precision(18);
-	sslog << "ClusterID;NumberOfMembers;BaryCenterX;BaryCenterY;BaryCenterZ\n";
-	sslog << "1;1;nm;nm;nm\n";
-	sslog << "ClusterID;NumberOfMembers;BaryCenterX;BaryCenterY;BaryCenterZ\n";
+	//sslog << "If number of members is -1 cluster as contact to the boundary\n";
+	sslog << "ClusterID;NumberOfMembers;BndContact;BaryCenterX;BaryCenterY;BaryCenterZ\n";
+	sslog << "1;1;boolean;nm;nm;nm\n";
+	sslog << "ClusterID;NumberOfMembers;BndContact;BaryCenterX;BaryCenterY;BaryCenterZ\n";
 	size_t excluded = 0;
-	for( auto it = precipitates.begin(); it != precipitates.end(); it++ ) {
-		if ( it->has_boundary_contact() == false ) {
+	for( auto it = precipitates.begin(); it != precipitates.end(); ++it ) {
+		p3d bary = it->center_of_gravity();
+		sslog << it->id << ";" << it->n << ";" << it->has_boundary_contact() << ";" << bary.x << ";" << bary.y << ";" << bary.z << "\n";
+		/*if ( it->has_boundary_contact() == false ) {
 			p3d bary = it->center_of_gravity();
 			sslog << it->id << ";" << it->n << ";" << bary.x << ";" << bary.y << ";" << bary.z << "\n";
 		}
 		else {
 			excluded++;
-		}
+		}*/
+		if ( it->has_boundary_contact() == false )
+			continue;
+		else
+			excluded++;
 	}
 	sslog.flush();
 	sslog.close();
 
-	cout << "A total of " << excluded << " out of " << precipitates.size() << " cluster were expelled from the size distribution because of boundary contact!" << endl;
+	cout << "From a total of " << precipitates.size() << " cluster " << excluded << " have boundary contact!" << endl;
 }
 
 void clusterHdl::report_size_distr_vtk( const string whichtarget, const string againstwhich, const unsigned int tid, const unsigned int runid )

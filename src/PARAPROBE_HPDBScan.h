@@ -379,7 +379,7 @@ public:
     Rules localDBSCAN(const Space &space, float epsilon, size_t minPoints);
     Pointz readIons(const std::vector<p3dm1> & ions );
     Pointz readFile(const std::string& filename);
-    dbscanres summarize( TypeSpecDescrStat const & tskdetails, bool* const interior, sqb const vgrd,
+    dbscanres summarize( TypeSpecDescrStat const & tskdetails, bool const * interior, sqb & vgrd,
     		vector<p3dm1> & ioncloud, const unsigned int maxtypeid, const unsigned int tid, const unsigned int rid );
 
 //public:
@@ -463,7 +463,7 @@ public:
 	clusterHdl();
 	~clusterHdl();
 
-	void boundary_contact_analysis( bool* const inside, sqb const & vgrd );
+	void boundary_contact_analysis( bool const * inside, sqb & vgrd );
 	void report_size_distr( const string whichtarget, const string againstwhich,
 			const unsigned int tid, const unsigned int runid );
 	void report_size_distr_vtk( const string whichtarget, const string againstwhich,
