@@ -52,6 +52,7 @@ string Settings::SurfaceFilenameIn = "";
 E_DISTANCE_METRICS Settings::SpatialDistributionTask = E_NOSPATSTAT;
 
 E_CLUSTERING Settings::ClusteringTask = E_NOCLUST;
+E_NUMABINDING Settings::NumaBinding = E_NOBINDING;
 
 unsigned int Settings::SimID = 0;
 
@@ -452,6 +453,13 @@ void Settings::readXML(string filename) {
 	if (0 != rootNode->first_node("SimClusterRadiusSigmaSqr"))
 		ClusterRadiusSigmaSqr = str2real(rootNode->first_node("SimClusterRadiusSigmaSqr")->value());
 
+	//performance
+	if (0 != rootNode->first_node("UseNUMABinding")) {
+		mode = stoul( rootNode->first_node("UseNUMABinding")->value() );
+		if ( mode == 1 )
+			NumaBinding = E_DEFAULTBINDING;
+	}
+
 	//##MK::convert units to SI
 }
 
@@ -674,6 +682,12 @@ bool Settings::checkUserInput()
 		cout << "\t\tHoshenKopelmanRawClusterID" << "\n";
 	if ( IOIonTipSurfDists == true )
 		cout << "\t\tVTKIonTipDistance" << "\n";
+
+	cout << "PARAPROBE Performance options..." << endl;
+	if ( Settings::NumaBinding == E_NOBINDING )
+		cout << "\t\tThreads get not pinned" << "\n";
+	if ( Settings::NumaBinding == E_DEFAULTBINDING )
+		cout << "\t\tThreads are pinned using NUMA library" << "\n";
 
 	//cout << "All console output which follows is intended for debugging primarily..." << endl;
 	cout << endl;

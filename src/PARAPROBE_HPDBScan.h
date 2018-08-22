@@ -205,6 +205,11 @@ public:
         this->m_clusters[index] = core ? -value : value;
     }
 
+    inline void overrideCluster(const size_t index, ssize_t value)
+    {
+    	this->m_clusters[index] = value;
+    }
+
     /**
      * Operations
      */
@@ -379,8 +384,10 @@ public:
     Rules localDBSCAN(const Space &space, float epsilon, size_t minPoints);
     Pointz readIons(const std::vector<p3dm1> & ions );
     Pointz readFile(const std::string& filename);
-    dbscanres summarize( TypeSpecDescrStat const & tskdetails, bool const * interior, sqb & vgrd,
-    		vector<p3dm1> & ioncloud, const unsigned int maxtypeid, const unsigned int tid, const unsigned int rid );
+    /*dbscanres summarize1( TypeSpecDescrStat const & tskdetails, bool const * interior, sqb & vgrd,
+    		vector<p3dm1> & ioncloud, const unsigned int maxtypeid, const unsigned int tid, const unsigned int rid );*/
+    dbscanres summarize2( TypeSpecDescrStat const & tskdetails, bool const * interior, sqb & vgrd,
+        		vector<p3dm1> & ioncloud, const unsigned int maxtypeid, const unsigned int tid, const unsigned int rid );
 
 //public:
     HPDBSCAN(const std::vector<p3dm1>& ions);
@@ -417,15 +424,15 @@ struct HPDBParms
 struct cl3d
 {
 	cl3d() : id(0), n(0) {}
-	cl3d(const size_t _id, const size_t _n) : id(_id), n(_n) {}
+	cl3d(const size_t _id, const long _n) : id(_id), n(_n) {}
 
 	void set_boundary_precipitate()
 	{
-		this->n = -1;
+		this->n *= -1;
 	}
 	bool has_boundary_contact() const
 	{
-		if ( this->n != -1 )
+		if ( this->n > -1 )
 			return false;
 		else
 			return true;
@@ -452,7 +459,7 @@ struct cl3d
 
 	vector<p3dm1> members;
 	size_t id;
-	size_t n;
+	long n;
 };
 
 
@@ -466,6 +473,8 @@ public:
 	void boundary_contact_analysis( bool const * inside, sqb & vgrd );
 	void report_size_distr( const string whichtarget, const string againstwhich,
 			const unsigned int tid, const unsigned int runid );
+	void report_size_distr2( const string whichtarget, const string againstwhich,
+			const unsigned int tid, const unsigned int runid, const bool excludeboundary );
 	void report_size_distr_vtk( const string whichtarget, const string againstwhich,
 			const unsigned int tid, const unsigned int runid );
 

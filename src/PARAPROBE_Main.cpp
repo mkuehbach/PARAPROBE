@@ -150,6 +150,9 @@ int main(int argc, char** argv)
 	hdl->set_rank(r);
 	hdl->set_nranks(nr);
 	hdl->set_mpidatatypes();
+	if ( Settings::NumaBinding != E_NOBINDING ) {
+		hdl->initialize_thread_binding();
+	}
 
 //load APT measurement file by all in parallel, individually identify ions with rangefile
 	localhealth = 1; //set to zero if process is get sick because of lacking data or errors

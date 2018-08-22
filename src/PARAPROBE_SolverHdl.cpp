@@ -2454,7 +2454,9 @@ void rndlabeler::apply_shuffled_types_global()
 			return;
 		}
 	}
-	//else {} //nothing to reset if was already shuffled and applied
+	//else {}
+		//either shuffled == true and applied == true, so was shuffled already
+		//or shuffled == false with any value of applied, was not even shuffled
 
 	double toc = MPI_Wtime();
 	owner->owner->tictoc.prof( "RndLabelingApplyNewLabelsGlobal", APT_UTL, tic, toc);
@@ -3598,22 +3600,28 @@ dbscanres clustertask::hpdbscan( const apt_real d, const size_t Nmin, const unsi
 	tic = omp_get_wtime();
 
 	//pass to HPDBScan and do clustering analysis
-	HPDBParms parameters = HPDBParms( d, Nmin );
+	HPDBParms parameters = HPDBParms( d, 1 ); //##MK::was Nmin, however classical 1NN ie nearest neighbor should be within dmax was Nmin );
 	omp_set_num_threads(parameters.threads);
 
 	//##MK::further improvement potential by spreading point data to threadlocal memory, will become important for ccNUMA issues
 
 	HPDBSCAN scanner( ions_filtered );
+
+	toc = omp_get_wtime();
+	cout << "\t\tHPDBSCAN parallel initialization took " << (toc-tic) << " seconds" << endl;
+	tic = omp_get_wtime();
+
+	cout << "\t\tHPDBSCAN parallel scanning with epsilon " << parameters.epsilon << " and minPoints " << parameters.minPoints << endl;
 	scanner.scan(parameters.epsilon, parameters.minPoints);
 
+	toc = omp_get_wtime();
+	cout << "\t\tHPDBSCAN parallel scanning took " << (toc-tic) << " seconds" << endl;
+	tic = omp_get_wtime();
 	//grab an already vxlized representation of the tip and use it to remove bias in the precip size distro
 	//by not reporting precipitates that span beyond the tip inside
-	//bool* tipinside = boss->owner->binner->IsInside;
-	//sqb tipaabb = boss->owner->binner->vxlgrid;
 
 	//summarize clustering analysis
-	//dbscanres N = scanner.summarize( mission, tipinside, tipaabb, ions_filtered, boss->owner->owner->mypse.get_maxtypeid(), tskid, runid );
-	dbscanres N = scanner.summarize( 	mission,
+	dbscanres N = scanner.summarize2( 	mission,
 										boss->owner->binner->IsInside,
 										boss->owner->binner->vxlgrid,
 										ions_filtered,
@@ -3623,7 +3631,7 @@ dbscanres clustertask::hpdbscan( const apt_real d, const size_t Nmin, const unsi
 	N.Dmax = d;
 
 	toc = omp_get_wtime();
-	cout << "\t\tHPDBSCAN init and scan took " << (toc-tic) << " seconds" << endl;
+	cout << "\t\tHPDBSCAN sequential post-processing took " << (toc-tic) << " seconds" << endl;
 
 	//##MK::report based on the clustering analysis which ions with respect to the input ioncloud to exclude
 	//in a subsequent descriptive statistical analysis where all clusters and a guarding region about them
@@ -3675,13 +3683,13 @@ cout << "Task specific global KDTree has " << globaltree->nodes.size() << " node
 		return false;
 	}
 
-	toc = MPI_Wtime();
+	toc = omp_get_wtime();
 	cout << "Task-specific global KDTree successful took " << (toc-tic) << " seconds";
 	return true;
 }
 
 
-void clustertask::flag2exclude_guard()
+void clustertask::flag2exclude_guard( const apt_real dmx )
 {
 	//##MK::if an ion is within spherical ball environment to any clustered ion with respect to a
 	//previously conducted inclusion analysis it is also flagged for exclusion
@@ -3856,7 +3864,7 @@ void clustertask::generic_spatstat( const unsigned int runid )
 	//report results
 	string what = "";
 	if ( Settings::SpatialDistributionTask == E_RDF )	what = "RDF";
-	else if ( Settings::SpatialDistributionTask == E_NEAREST_NEIGHBOR ) what = "NN";
+	else if ( Settings::SpatialDistributionTask == E_NEAREST_NEIGHBOR ) what = "1NN";
 	else if ( Settings::SpatialDistributionTask == E_RIPLEYK ) what = "RIPK";
 	else if ( Settings::SpatialDistributionTask == E_KNN ) what = to_string(Settings::SpatStatKNNOrder) + "NN";
 	else what = "";
@@ -3890,18 +3898,29 @@ void clustertask::report_aposteriori_descrstat( const string whichmetric,
 	sslog.open( fn.c_str() );
 	sslog.precision(18);
 
-	sslog << "BinEnd;Count\n";
-	sslog << "nm;1\n";
-	sslog << "BinEnd;Count\n";
+
+	//##MK::improve here for all cases
+	sslog << "BinEnd(r);Counts;ECDFon[BinMinBinMax];CDFon[BinMinBinMax]\n";
+	sslog << "nm;1;1;1\n";
+	sslog << "BinEnd(r);Counts;ECDFon[BinMinBinMax];CDFon[BinMinBinMax]\n"; //we report binends and accumulated counts
 	apt_real bend = hist.start() + hist.width();
+
 	//below hist.start() lower tail dump
-	sslog << hist.start() << ";" << hist.cnts_lowest << "\n";
-	for( unsigned int b = 0; b < hist.bincount(); ++b) {
-		sslog << bend << ";" << hist.report(b) << "\n";
-		bend += hist.width();
+	sslog << hist.start() << ";" << hist.cnts_lowest << ";;\n";
+
+	//get cumulative sum on [ ) interval
+	apt_real cum_sum = 0.f;
+	for( unsigned int b = 0; b < hist.bincount(); ++b) { cum_sum += hist.report(b); }
+
+	apt_real sum = 0.f;
+	for( unsigned int b = 0; b < hist.bincount(); ++b, bend += hist.width() ) {
+		sum += hist.report(b);
+		apt_real csum = (cum_sum > EPSILON) ? (sum / cum_sum) : 0.f;
+		sslog << bend << ";" << hist.report(b) << ";" << sum << ";" << csum << "\n";
 	}
+
 	//above hist.end() upper tail dump
-	sslog << "" << ";" << hist.cnts_highest << "\n";
+	sslog << "" << ";" << hist.cnts_highest << ";;\n";
 
 	sslog.flush();
 	sslog.close();
@@ -4322,6 +4341,7 @@ void clusterer::maximum_separation_method()
 	//performs for each task, parameter sweeping of maximum separation method for dmax within range [ClustMSDmaxMin,ClustMSDmaxIncr,ClustMSDmaxMax]
 	//without dilatation and erosion and setting Nmin to ClustMSNmin
 
+	//distinguish time spent in clustering itself and a posteriori spat stat
 	double tic = MPI_Wtime();
 
 	//##MK::clustering tasks are executed sequentially having always all threads in parallel working on each
@@ -4368,14 +4388,13 @@ void clusterer::maximum_separation_method()
 				cout << "\t\tTask/Dmax/NClusterFound took " << tsk << "\t\t" << dmax << " took " << (mtoc-mtic) << " seconds" << endl;
 
 				if ( Settings::ClustPostSpatStat == true ) {
-						double dtic = omp_get_wtime();
-
+					double dtic = omp_get_wtime();
 
 					if ( cworker->build_kdtree() == true ) {
-						cworker->flag2exclude_guard();
+						cworker->flag2exclude_guard( dmax );
 						//task- and dmax-specific descriptive spatial statistics
 						cworker->generic_spatstat( dmaxid );
-						cworker->reset(); //MK::to reutilize parts of the datastructure in next dmax iteration
+						cworker->reset(); //MK::unflagging and resetting to reutilize parts of the datastructure in next dmax iteration
 					}
 					else {
 						complaining("Unable to build task-specific KDTree for reduced ion cloud descriptive statistics!");
@@ -4384,7 +4403,7 @@ void clusterer::maximum_separation_method()
 
 					double dtoc = omp_get_wtime();
 					cout << "\t\tTask-specific spatial statistics done took " << (dtoc-dtic) << " seconds" << endl;
-				}
+				} //done a posteriori spat stat
 			} //probe next dmax of still the same task
 
 			//Dmax parameter sweeping for task tsk done, report
@@ -4430,11 +4449,12 @@ void clusterer::maximum_separation_report( const string whichtarget, const strin
 	sslog.open( fn.c_str() );
 	sslog.precision(18);
 
-	sslog << "DMax;NMin;Ncluster;Nlinkpoints;Ncorepoints;Nnoisepoints;Nclusteredpoints\n";
-	sslog << "nm;1;1;1;1;1;1\n";
-	sslog << "DMax;NMin;Ncluster;Nlinkpoints;Ncorepoints;Nnoisepoints;Nclusteredpoints\n";
-	for( auto it = results.begin(); it != results.end(); it++ ) {
-		sslog << it->Dmax << ";" << it->Nmin << ";" << it->nClusterFound << ";";
+	sslog << "DMaxID;DMax;NMin;Ncluster;Nlinkpoints;Ncorepoints;Nnoisepoints;Nclusteredpoints\n";
+	sslog << "1;nm;1;1;1;1;1;1\n";
+	sslog << "DMaxID;DMax;NMin;Ncluster;Nlinkpoints;Ncorepoints;Nnoisepoints;Nclusteredpoints\n";
+	size_t id = 0;
+	for( auto it = results.begin(); it != results.end(); ++it, id++ ) {
+		sslog << id << ";" << it->Dmax << ";" << it->Nmin << ";" << it->nClusterFound << ";";
 		sslog << (it->nClustered - it->nCore) << ";" << it->nCore << ";" << it->nNoise << ";" << it->nClustered << "\n";
 	}
 	sslog.flush();
@@ -5320,6 +5340,110 @@ void solverHdl::delete_rawdata( void )
 
 	double toc = MPI_Wtime();
 	tictoc.prof( "RawdataDestruction", APT_UTL, tic, toc);
+}
+
+
+void solverHdl::initialize_thread_binding()
+{
+	//initialize NUMA binding
+	double tic = MPI_Wtime();
+
+	cout << "Initialize NUMA binding..." << "\n";
+	vector<NUMANodeType> nodes;
+	cout << "Bytesize of NUMANodeType " << sizeof(NUMANodeType) << "\n";
+	int status = numa_available();
+	if ( status < 0 ) {
+		cout << "Your system does not support NUMA API\n";
+		return;
+	}
+	cout << "Your system supports NUMA API\n";
+
+	// returns a mask of CPUs on which the current task is allowed to run.
+	bitmask* mask = numa_get_run_node_mask();
+	bitmask* cpus = numa_allocate_cpumask();
+	cout << "RunNodeMaskSize " << mask->size << endl;
+
+	for (unsigned int j = 0; j < mask->size; j++) {
+		if (numa_bitmask_isbitset(mask, j)) {
+			cout << "We are allowed to use node " << j << "\n";
+			NUMANodeType node;
+			memset(&node, 0xFF, sizeof(node));
+			//converts a node number to a bitmask of CPUs.
+			//The user must pass a bitmask structure with a mask buffer long enough to represent all possible cpu's
+			numa_node_to_cpus(j, cpus);
+			node.num_cpus = my_numa_bitmask_weight(cpus);
+			cout << "node.num_cpus " << node.num_cpus << "\n";
+			cout << "cpus size " << cpus->size << "\n";
+
+			int cpuCounter = 0;
+			for (unsigned int i = 0; i < cpus->size; i++) {
+				if (numa_bitmask_isbitset(cpus, i)
+						&& numa_bitmask_isbitset(numa_all_cpus_ptr, i)) {
+					node.numa_cpus[cpuCounter] = i;
+					cpuCounter++;
+					cout << "\t\ti/cpuCounter " << i << ";" << cpuCounter << endl;
+				}
+			}
+			nodes.push_back(node);
+		}
+		//else
+		//	cout << "We are not allowed to use node " << j << "\n";
+	}
+	numa_free_cpumask(cpus);
+
+	//we know a priori that the MAWS15,16,17 have 18 HT core pairs each on two nodes
+	//first package IDs run from 0/36 to 2/38 and so forth ie even internal names
+	//second package IDs run from 1/37 to 3/39 and so forth ie odd internal names
+	//verify this using lstopo machine topology assessment
+	vector<int> NextFreeCPUonNode;
+	NextFreeCPUonNode.push_back(0); //first entry on node 0 e.g. P#1
+	NextFreeCPUonNode.push_back(0);	//first entry on node 1 e.g. P#2
+
+	#pragma omp parallel //everything shared by default
+	{
+		int threadID = omp_get_thread_num(); //threadlocal variables
+		for( int tid = 0; tid < omp_get_num_threads(); tid++ ) { //enforced ordered placement of the threads
+			if ( tid == threadID ) { //each thread only once
+				#pragma omp critical
+				{
+					int UseThisNodeLocalCoreID = 666; //still unknown
+					int UseThisNodeID = 666;
+
+					//MAWS15,16,17
+					if ( threadID % 2 == 0 )
+						UseThisNodeID = 0; //map to first node package P#0
+					else
+						UseThisNodeID = 1; //map to second node package P#1
+
+					//MAWS30
+					/*
+					if ( threadID < 10 )
+						UseThisNodeID = 0; //map to first node package P#0
+					else
+						UseThisNodeID = 1; //map to second node package P#1
+					*/
+
+					UseThisNodeLocalCoreID = NextFreeCPUonNode.at(UseThisNodeID);
+					NextFreeCPUonNode.at(UseThisNodeID)++;
+
+					cout << "Will bind thread " << threadID << " to package node " << UseThisNodeID << " lstopo core id ";
+					cout << nodes.at(UseThisNodeID).numa_cpus[UseThisNodeLocalCoreID];
+					cpu_set_t set;
+					CPU_ZERO(&set);
+					CPU_SET(nodes.at(UseThisNodeID).numa_cpus[UseThisNodeLocalCoreID], &set);
+					int res = sched_setaffinity(0, sizeof(set), &set);
+					if ( res == 0 )
+						cout << " Done\n";
+					else
+						cout << " Failed\n";
+				}
+			}
+			#pragma omp barrier
+		}
+	}
+
+	double toc = MPI_Wtime();
+	tictoc.prof( "InitNUMABinding", APT_UTL, tic, toc);
 }
 
 /*

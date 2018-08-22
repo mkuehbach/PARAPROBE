@@ -11,7 +11,7 @@
 
 	PARAPROBE --- is an MPI/OpenMP/SIMD-parallelized tool for efficient scalable
 	processing of Atom Probe Tomography data targeting back-end processing.
-
+	
 	This file is part of PARAPROBE.
 
 	PARAPROBE is free software: you can redistribute it and/or modify
@@ -28,27 +28,14 @@
 	along with paraprobe.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
-#ifndef __PARAPROBE_BSIMD_H__
-#define __PARAPROBE_BSIMD_H__
-
-//#include "PARAPROBE_Parallelization.h"
 #include "PARAPROBE_NUMABinding.h"
 
-//MK::connecting to the NumScale boostSIMD library to access portable vector intrinsics for recon
-//#define USE_BOOST
-
-#ifdef USE_BOOST
-
-	#include <boost/simd/pack.hpp>
-	namespace bs = boost::simd;
-
-	//include Boost functionality
-	#include <boost/dynamic_bitset.hpp>
-
-	//include BoostSIMD
-	//##MK
-
-#endif
-
-#endif
+unsigned int my_numa_bitmask_weight(const struct bitmask *mask) {
+	unsigned int weight = 0;
+	for (unsigned int j = 0; j < mask->size; j++) {
+		if (numa_bitmask_isbitset(mask, j)) {
+			weight++;
+		}
+	}
+	return weight;
+}

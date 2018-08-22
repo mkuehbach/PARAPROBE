@@ -757,8 +757,7 @@ Rules HPDBSCAN::localDBSCAN(const Space& space, const float epsilon, const size_
 
     // local dbscan
     #pragma omp parallel for schedule(dynamic) reduction(merge: rules)
-    for (size_t i = 0; i < keys.size(); ++i)
-    {
+    for (size_t i = 0; i < keys.size(); ++i) {
         const auto& cell = keys[i];
         const auto& pointLocator = cellIdx.find(cell)->second;
         const std::vector<size_t> neighborPoints = space.getNeighbors(cell);
@@ -772,19 +771,16 @@ Rules HPDBSCAN::localDBSCAN(const Space& space, const float epsilon, const size_
             {
                 this->m_points.cluster(point, clusterId, true);
 
-                for (size_t other : minPointsArea)
-                {
+                for (size_t other : minPointsArea) {
                     ssize_t otherClusterId = this->m_points.cluster(other);
-                    if (this->m_points.corePoint(other))
-                    {
+                    if (this->m_points.corePoint(other)) {
                         auto minmax = std::minmax(otherClusterId, clusterId);
                         rules.update(minmax.second, minmax.first);
                     }
                     this->m_points.cluster(other, clusterId, false);
                 }
             }
-            else if (this->m_points.cluster(point) == NOT_VISITED)
-            {
+            else if (this->m_points.cluster(point) == NOT_VISITED) {
                 this->m_points.cluster(point, NOISE, false);
             }
         }
@@ -793,16 +789,18 @@ Rules HPDBSCAN::localDBSCAN(const Space& space, const float epsilon, const size_
     return rules;
 }
 
-dbscanres HPDBSCAN::summarize( TypeSpecDescrStat const & tskdetails, bool const * interior, sqb & vgrd, vector<p3dm1> & ioncloud,
+
+/*
+dbscanres HPDBSCAN::summarize1( TypeSpecDescrStat const & tskdetails, bool const * interior, sqb & vgrd, vector<p3dm1> & ioncloud,
 		const unsigned int maxtypeid, const unsigned int tid, const unsigned int rid )
 {
+	//##MK::deprecated use summarize2 instead
     std::unordered_set<size_t> clusters;
     size_t clusterPoints = 0L;
     size_t noisePoints   = 0L;
     size_t corePoints    = 0L;
 
-    for (size_t i = 0; i < this->m_points.size(); ++i)
-    {
+    for (size_t i = 0; i < this->m_points.size(); ++i) {
         size_t cluster = this->m_points.cluster(i);
 
         if (cluster == 0) { //noise points are not part of a cluster
@@ -837,8 +835,7 @@ dbscanres HPDBSCAN::summarize( TypeSpecDescrStat const & tskdetails, bool const 
 		newlabel++;
     }
 
-    for (size_t i = 0; i < this->m_points.size(); ++i)
-    {
+    for (size_t i = 0; i < this->m_points.size(); ++i) {
         size_t cluster = this->m_points.cluster(i);
         if (cluster == 0) //noise ion
         	continue;
@@ -882,6 +879,163 @@ cout << "Boundary contact analysis of all cluster done" << endl;
     //now all ions of icld which sc found to cluster have flagged ion types,
    	//while all others still have their original type
 
+    //wrap up results
+    return dbscanres( corePoints, clusterPoints, noisePoints, static_cast<size_t>(clusters.size()), 0, 0.f ); //##MK::last two values dummies
+}
+*/
+
+
+dbscanres HPDBSCAN::summarize2( TypeSpecDescrStat const & tskdetails, bool const * interior, sqb & vgrd, vector<p3dm1> & ioncloud,
+		const unsigned int maxtypeid, const unsigned int tid, const unsigned int rid )
+{
+    //MK::maximum separation method is related to DBScan but it is not DBScan
+	//specifically there is an additional requirement of having a minimum number of ions within the cluster
+	//if this is condition is not met the cluster members are untied and considered noise again, therefore we first need to identify the
+	//cluster and count how many members they have
+
+	//next, all cluster from the DBScan run are reclassified as noise and the members identified again ##MK::optimize in the future
+
+	//##MK::in order to avoid to running multiple times of over entire array m_points we could build an array position index
+	//first which atoms to inspect of course at the cost of additional memory...
+
+	//instead here we run over the array multiple times, given that the version is first version of this summary function,
+	//it is acceptable but systematic improvement and parallelization after benchmarking might be useful to increase performance ##MK
+
+	//build collection of cluster id names...
+	std::unordered_set<size_t> clusters;
+    size_t clusterPoints = 0L;
+    size_t noisePoints   = 0L;
+    size_t corePoints    = 0L;
+
+    cout << "Collecting statistics of clustering on point cloud..." << endl;
+    for (size_t i = 0; i < this->m_points.size(); ++i) {
+        size_t cluster = this->m_points.cluster(i);
+
+        if (cluster == 0) { //DBScan detected noise points are not part of a cluster, works only if DBScan is used with eps = dmax and Nmin = 1 such that the concept of a core point and a link point does not exists because all points with at least one neighbor within 1 are core points hence also link points
+            ++noisePoints;
+        }
+        else { //clusterPoints and corePoints define a cluster
+        	clusters.insert(cluster);
+            ++clusterPoints;
+        }
+
+        if (this->m_points.corePoint(i)) {
+            ++corePoints;
+        }
+    }
+    cout << "\t" << clusters.size() << "\tClusters" << endl;
+    cout << "\t" << clusterPoints << "\tCluster Points" << endl;
+    cout << "\t" << noisePoints << "\tNoise Points" << endl;
+    cout << "\t" << corePoints << "\tCore Points" << endl;
+
+    //map cluster id to number of members
+    cout << "Post-processing cluster labeling to release to small cluster into the matrix..." << endl;
+    map<size_t, size_t> cid2mcnt;
+    for( auto it = clusters.begin(); it != clusters.end(); ++it ) { //init counts
+    	cid2mcnt.insert( pair<size_t,size_t>(*it, 0) );
+    }
+
+    //count how many members for cluster
+    for ( size_t i = 0; i < this->m_points.size(); ++i ) {
+		size_t cluster = this->m_points.cluster(i);
+
+		if (cluster == 0) //DBScan detected noise points
+			continue;
+
+		auto jt = cid2mcnt.find(cluster);
+		if ( jt != cid2mcnt.end() ) //if DbScan cluster ID exists
+			jt->second++;
+		else
+			cout << "Unexpected case in summarizing HPDBScan results!" << endl; //##MK
+    }
+
+    //reset members of cluster with less than Settings::ClustMSNmin members to NOISE
+    size_t released = 0;
+    for( size_t i = 0; i < this->m_points.size(); ++i ) {
+    	size_t cluster = this->m_points.cluster(i);
+    	if ( cluster == 0 )
+    		continue; //noise already
+
+    	auto jt = cid2mcnt.find(cluster);
+    	if ( jt != cid2mcnt.end() ) { //existent cluster
+    		if ( jt->second >= Settings::ClustMSNmin ) { //critical population proof cluster, label stays unchanged
+    			continue;
+    		}
+    		else { //too few members in cluster, all get released into the matrix
+    			this->m_points.overrideCluster(i, 0);
+    			++released;
+    		}
+    	}
+    }
+    cout << "\t" << released << " cluster points released into matrix because of too insignificant cluster size" << endl;
+
+    //characterize cluster
+    cout << "Post-processing cluster labeling and population into physical significant objects..." << endl;
+    clusterHdl nanogod;
+    nanogod.precipitates.reserve( clusters.size() );
+
+    //mapping of HPDBScan cluster ID (which can be nonconsecutive) to index on nanogod.precipitate array
+    map<size_t, size_t> cid2idx;
+    size_t newlabel = 0;
+    for( auto it = clusters.begin(); it != clusters.end(); ++it ) {
+    	auto jt = cid2mcnt.find(*it);
+    	if ( jt != cid2mcnt.end() ) {
+    		if ( jt->second >= Settings::ClustMSNmin ) {
+    			cid2idx.insert( pair<size_t,size_t>(*it, newlabel) );
+				nanogod.precipitates.push_back( cl3d( newlabel, 0 ) ); //MK::*it gives val of the unordered_set object
+				//cout << *it << "\t\t" << nanogod.precipitates.size()-1 << "\t\t" << newlabel << endl;
+				newlabel++;
+    		}
+    	}
+    }
+
+    //##MK::also slight redundancies here but now go through the points and assign to cluster objects to get geometry of the cluster for further post-processing
+    for (size_t i = 0; i < this->m_points.size(); ++i) {
+        size_t cluster = this->m_points.cluster(i);
+
+        if (cluster == 0) //noise ion
+        	continue;
+        else { //add ion to its cluster
+        	auto jt = cid2idx.find(cluster);
+        	if ( jt != cid2idx.end() ) { //if DbScan cluster ID exists
+        		nanogod.precipitates.at( jt->second ).n++;
+        		nanogod.precipitates.at( jt->second ).members.push_back( this->m_points[i] ); //does not throw
+        		//these.at( cid2idx.at(cluster) ).members.push_back( m_points.at(i) ); //throws
+        	}
+        }
+    }
+
+    cout << "Post-processing boundary contact analysis of all cluster..." << endl;
+    nanogod.boundary_contact_analysis( interior, vgrd );
+
+    cout << "Post-processing reporting cluster size distribution..." << endl;
+    string whichtarg = ""; //tskdetails.target.first;
+    for( auto jt = tskdetails.trgcandidates.begin(); jt != tskdetails.trgcandidates.end(); jt++ ) {
+    	whichtarg += jt->first;
+    }
+   	string whichcand = "";
+    for( auto jt = tskdetails.envcandidates.begin(); jt != tskdetails.envcandidates.end(); jt++) {
+    	whichcand += jt->first;
+    }
+    nanogod.report_size_distr( whichtarg, whichcand, tid, rid ); //reports all cluster with number of members positive if inside, negative if outside
+    nanogod.report_size_distr2( whichtarg, whichcand, tid, rid, true ); //report CDF of cluster include those making contact with boundary
+    nanogod.report_size_distr2( whichtarg, whichcand, tid, rid, false ); //report CDF of cluster do not include those making boundary contact
+    nanogod.report_size_distr_vtk( whichtarg, whichcand, tid, rid );
+
+    //flag ions as clustered
+    unsigned int mxtypid = maxtypeid;
+    size_t excluded = 0;
+    for(size_t i = 0; i < ioncloud.size(); ++i) {
+    	size_t clusterid = this->m_points.cluster(i);
+    	if ( clusterid != 0 ) { //non-noise ion
+    		ioncloud.at(i).m = flag_as_clustered( ioncloud.at(i).m, mxtypid );
+    		++excluded;
+    	}
+    }
+
+    cout << endl << "Flag2ExcludeNoNoise " << excluded << endl;
+    //now all ions of icld which sc found to cluster have flagged ion types,
+   	//while all others still have their original type
 
     //wrap up results
     return dbscanres( corePoints, clusterPoints, noisePoints, static_cast<size_t>(clusters.size()), 0, 0.f ); //##MK::last two values dummies
@@ -1030,6 +1184,76 @@ void clusterHdl::report_size_distr( const string whichtarget, const string again
 	cout << "From a total of " << precipitates.size() << " cluster " << excluded << " have boundary contact!" << endl;
 }
 
+
+void clusterHdl::report_size_distr2( const string whichtarget, const string againstwhich,
+		const unsigned int tid, const unsigned int runid, const bool excludeboundary )
+{
+	//get mean number of members per cluster, collect first candidates, then sort and normalize
+	vector<double> val;
+	if ( excludeboundary == false ) { //so slightly more code but no exclude checks per percipitate
+		for( auto it = precipitates.begin(); it != precipitates.end(); ++it ) {
+			val.push_back( fabs(it->n) );
+		}
+	}
+	else {
+		for( auto it = precipitates.begin(); it != precipitates.end(); ++it ) {
+			if ( it->has_boundary_contact() == false )
+				val.push_back( it->n ); //negative values should not be encountered, therefore no fabs() necessary
+		}
+	}
+
+	if ( val.size() > 0 ) {
+		//get average number of members even if non-integer
+		double sum = 0.f;
+		for ( auto it = val.begin(); it != val.end(); ++it )
+			sum += *it;
+
+		double meanval = sum / static_cast<double>(val.size());
+
+		//full sorting of val is required because we want to report a distribution
+		std::sort( val.begin(), val.end() ); //MK::sors in ascending order by default if no custom sort function is provided
+
+		//report into file
+		string fn = "PARAPROBE.SimID." + to_string(Settings::SimID);
+		if ( excludeboundary == false )
+			fn += ".MaxSepClustSzDistrInAndOut.";
+		else
+			fn += ".MaxSepClustSzDistrInOnly.";
+
+		fn += whichtarget + "." + againstwhich + ".TskID." + to_string(tid) + ".RunID." + to_string(runid) + ".csv";
+
+		ofstream sslog;
+		sslog.open( fn.c_str() );
+		if ( sslog.is_open() == false ) {
+			string mess = "Unable to open file " + fn;
+			stopping(mess);
+			return;
+		}
+
+		sslog.precision(18);
+		//##MK::reporting not cluster ID preserving only interested in size distribution
+		sslog << "NumberOfMembers;NumberOfMembersNormalized;ECDFNormalized\n";
+		sslog << "1;1;1\n";
+		sslog << "NumberOfMembers;NumberOfMembersNormalized;ECDFNormalized\n";
+
+		double cumsum = 0.f;
+		double total = 1.f / static_cast<double>(val.size());
+		for ( auto it = val.begin(); it != val.end(); ++it ) { //val is now sorting in ascending order
+			cumsum += 1.f;
+			sslog << *it << ";" << *it / meanval << ";" << cumsum * total << endl;
+		}
+
+		sslog.flush();
+		sslog.close();
+	}
+
+	if ( excludeboundary == false )
+		cout << "Wrote size distribution of " << val.size() << " cluster inside and outside" << endl;
+	else
+		cout << "Wrote size distribution of " << val.size() << " cluster inside and outside" << endl;
+}
+
+
 void clusterHdl::report_size_distr_vtk( const string whichtarget, const string againstwhich, const unsigned int tid, const unsigned int runid )
 {
 	//MK::write VTK file showing barycenter of all synthesized cluster in reconstructed space
@@ -1059,7 +1283,7 @@ void clusterHdl::report_size_distr_vtk( const string whichtarget, const string a
 		vtk << "\n";
 		vtk << "POINT_DATA " << precipitates.size() << "\n";
 		vtk << "FIELD FieldData 1\n";
-		vtk << "NumberOfMembers 1 " << precipitates.size() << " float\n";
+		vtk << "NumberOfMembers 1 " << precipitates.size() << " float\n"; //negative number of members for guys with boundary contact, positive for inside
 		for( auto it = precipitates.begin(); it != precipitates.end(); it++ ) {
 			vtk << it->n << "\n";
 		}

@@ -135,4 +135,8 @@
 	<SimClusterRadiusMean>2.0</SimClusterRadiusMean>
 	<SimClusterRadiusSigmaSqr>0.1</SimClusterRadiusSigmaSqr>
 	<!--BE CAREFUL currently distribution parameter not the mean and variance in nanometer-->
+	
+	<!--PERFORMANCE-->
+	<UseNUMABinding>0</UseNUMABinding>
+	<!--if 1 uses the numa library to bind threads to specific cores preventing context switching and improving locality-->
 </Parameters>

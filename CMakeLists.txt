@@ -121,6 +121,7 @@ find_package(MPI REQUIRED)
 include_directories(${MPI_INCLUDE_PATH})
 
 add_executable(${MYPROJECTNAME}
+	${MYSRCPATH}PARAPROBE_NUMABinding.cpp
 	${MYSRCPATH}PARAPROBE_Datatypes.cpp
 	${MYSRCPATH}PARAPROBE_PeriodicTable.cpp
 	${MYSRCPATH}PARAPROBE_Histogram.cpp
@@ -163,7 +164,7 @@ find_package(Boost COMPONENTS system filesystem REQUIRED)
 
 #linking process
 ##mind the y and dl libraries at the end which are required for gcc support when using the hdf libraries
-target_link_libraries(${MYPROJECTNAME} ${MYOMP} -lgmp ${Boost_LIBRARIES} ${MPI_LIBRARIES} ${MYHDFLINKFLAGS})
+target_link_libraries(${MYPROJECTNAME} ${MYOMP} -lgmp -lm -lnuma ${Boost_LIBRARIES} ${MPI_LIBRARIES} ${MYHDFLINKFLAGS})
 
 #MPI compilation settings
 if(MPI_COMPILE_FLAGS)

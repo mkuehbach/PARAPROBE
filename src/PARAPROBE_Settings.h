@@ -90,6 +90,10 @@ enum E_CLUSTERING {
 	E_ISOSURF						//Isosurface-based
 };
 
+enum E_NUMABINDING {
+	E_NOBINDING,					//no binding
+	E_DEFAULTBINDING				//implementation specific numa binding
+};
 
 class Settings {
 public:
@@ -100,6 +104,7 @@ public:
 	static E_TIPSURFMESHING_ALGORITHM SurfaceMeshingAlgo;
 	static E_DISTANCE_METRICS SpatialDistributionTask;
 	static E_CLUSTERING ClusteringTask;
+	static E_NUMABINDING NumaBinding;
 	static string RAWFilenameIn;
 	static string RRNGFilenameIn;
 	static string SurfaceFilenameIn;

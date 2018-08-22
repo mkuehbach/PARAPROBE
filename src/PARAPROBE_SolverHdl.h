@@ -325,7 +325,7 @@ public:
 	dbscanres hpdbscan( const apt_real d, const size_t Nmin, const unsigned int runid );
 
 	bool build_kdtree();
-	void flag2exclude_guard();
+	void flag2exclude_guard( const apt_real dmx );
 	void generic_spatstat( const unsigned int runid );
 	void report_aposteriori_descrstat( const string whichmetric,
 			const string whichtarget, const string againstwhich,
@@ -384,6 +384,9 @@ public:
 	inline int get_nranks( void ) { return nRanks; }
 	void set_rank( const int rr ) { myRank = rr; }
 	void set_nranks( const int nnrr ) { nRanks = nnrr; }
+
+	//NUMA binding
+	void initialize_thread_binding();
 
 	spacebucket rawdata_alf;	//an artificial life form
 	vector<vector<pos>*> rawdata_pos;
