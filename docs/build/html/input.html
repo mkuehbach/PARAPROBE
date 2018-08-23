@@ -316,6 +316,19 @@ So far the support for tip geometry is simplistic defining hardcoded single-crys
 </div>
 </div>
 </div>
+<div class="section" id="performance">
+<h2>Performance<a class="headerlink" href="#performance" title="Permalink to this headline">¶</a></h2>
+<p>Options and setting affecting the way PARAPROBE is executed on the machine.</p>
+<div class="line-block">
+<div class="line"><strong>UseNUMABinding</strong></div>
+<div class="line-block">
+<div class="line">If 1, will use the <a class="reference external" href="https://linux.die.net/man/3/numa">NUMA</a> library to pin the threads on specific cores.</div>
+<div class="line">Given that the pinning heuristic is not portable, potential code modification are required.</div>
+</div>
+</div>
+<blockquote>
+<div></div></blockquote>
+</div>
 </div>
 
 
@@ -338,6 +351,7 @@ So far the support for tip geometry is simplistic defining hardcoded single-crys
 <li><a class="reference internal" href="#clustering-analyses-parameter">Clustering analyses parameter</a></li>
 <li><a class="reference internal" href="#visualization-options">Visualization options</a></li>
 <li><a class="reference internal" href="#synthetic-tip">Synthetic tip</a></li>
+<li><a class="reference internal" href="#performance">Performance</a></li>
 </ul>
 </li>
 </ul>

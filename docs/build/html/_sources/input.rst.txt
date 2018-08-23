@@ -166,3 +166,14 @@ So far the support for tip geometry is simplistic defining hardcoded single-crys
 | **SimClusterRadiusMean**
 | **SimClusterRadiusSigmaSqr**
 |	Lognormal distribution parameter NOT expectation value and variance for cluster size distribution, currently all cluster same size mean, in nanometer
+
+
+Performance
+^^^^^^^^^^^
+Options and setting affecting the way PARAPROBE is executed on the machine.
+
+| **UseNUMABinding**
+|	If 1, will use the NUMA_ library to pin the threads on specific cores.
+| 	Given that the pinning heuristic is not portable, potential code modification are required.
+
+ .. _NUMA: https://linux.die.net/man/3/numa

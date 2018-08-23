@@ -47,15 +47,17 @@ Version history
 |	MPI/OpenMP thread-parallelized spatial range querying and indexing tasks
 |	CGAL alpha shape tip surface extraction with smart pruning
 |	OMP-parallelized RDF, 1NN, kNN, Ripley K descriptive spatial statistics
-|	These can be batch processed using different and multiple type combinations
-|	As well as multiple kNN settings at a time for each task, descriptive statistics are
-|	computed both randomized and not randomized with full ion typ pairing flexibility
+|	These can be batch processed using different and multiple type combinations, as well as
+|	multiple kNN settings at a time for each task
+|	Descriptive statistics are computed both deterministically randomized and non-randomized 
+|	with full ion typ pairing flexibility
 |	OMP-parallelized maximum separation clustering method with dmax parameter sweeping
-| Beta functionality
-|	A posteriori possibility for each dmax single clustering result to relabel the ions
-|	for excluding clustered ions and guardzone about them from the again 
-|	OMP-parallel a posteriori clustering descriptive spatial statistics
-|	Synthetic tip generation for benchmarking and testing, exemplary HDF5 I/O.
+|	Cluster size distribution identification, removal of bias via boundary contact identification
+|	Beta stage support for a posteriori relabeling of the ions after each dmax run to
+|	exclude clustered ions and guardzone about them from the again and do a posteriori
+|	OMP-parallel descriptive spatial statistics on the remaining ions
+|	Synthetic tip generation for benchmarking and testing, NUMA thread pinning
+|	Beta stage exemplary HDF5 I/O support
 
 
 Licence

@@ -100,6 +100,7 @@
 <li class="toctree-l2"><a class="reference internal" href="input.html#clustering-analyses-parameter">Clustering analyses parameter</a></li>
 <li class="toctree-l2"><a class="reference internal" href="input.html#visualization-options">Visualization options</a></li>
 <li class="toctree-l2"><a class="reference internal" href="input.html#synthetic-tip">Synthetic tip</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#performance">Performance</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="executing.html"><strong>Program execution</strong></a><ul>
@@ -130,17 +131,17 @@
 <div class="line">MPI/OpenMP thread-parallelized spatial range querying and indexing tasks</div>
 <div class="line">CGAL alpha shape tip surface extraction with smart pruning</div>
 <div class="line">OMP-parallelized RDF, 1NN, kNN, Ripley K descriptive spatial statistics</div>
-<div class="line">These can be batch processed using different and multiple type combinations</div>
-<div class="line">As well as multiple kNN settings at a time for each task, descriptive statistics are</div>
-<div class="line">computed both randomized and not randomized with full ion typ pairing flexibility</div>
+<div class="line">These can be batch processed using different and multiple type combinations, as well as</div>
+<div class="line">multiple kNN settings at a time for each task</div>
+<div class="line">Descriptive statistics are computed both deterministically randomized and non-randomized</div>
+<div class="line">with full ion typ pairing flexibility</div>
 <div class="line">OMP-parallelized maximum separation clustering method with dmax parameter sweeping</div>
-</div>
-<div class="line">Beta functionality</div>
-<div class="line-block">
-<div class="line">A posteriori possibility for each dmax single clustering result to relabel the ions</div>
-<div class="line">for excluding clustered ions and guardzone about them from the again</div>
-<div class="line">OMP-parallel a posteriori clustering descriptive spatial statistics</div>
-<div class="line">Synthetic tip generation for benchmarking and testing, exemplary HDF5 I/O.</div>
+<div class="line">Cluster size distribution identification, removal of bias via boundary contact identification</div>
+<div class="line">Beta stage support for a posteriori relabeling of the ions after each dmax run to</div>
+<div class="line">exclude clustered ions and guardzone about them from the again and do a posteriori</div>
+<div class="line">OMP-parallel descriptive spatial statistics on the remaining ions</div>
+<div class="line">Synthetic tip generation for benchmarking and testing, NUMA thread pinning</div>
+<div class="line">Beta stage exemplary HDF5 I/O support</div>
 </div>
 </div>
 </div>
