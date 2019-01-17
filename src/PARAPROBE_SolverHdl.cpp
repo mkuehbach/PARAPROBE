@@ -107,6 +107,26 @@ solver::solver()
 		healthy = false;
 	}
 
+	aptcrystallo = NULL;
+	try {
+		aptcrystallo = new aptcrystHdl;
+		reporting( "Solver constructor allocated aptcrystHdl");
+	}
+	catch (bad_alloc &croak) {
+		stopping("Solver constructor unable to allocate aptcrystHdl!");
+		healthy = false;
+	}
+
+	tessellator = NULL;
+	try {
+		tessellator = new tessHdl;
+		reporting( "Solver constructor allocated Voronoi tessellator");
+	}
+	catch (bad_alloc &croak) {
+		stopping("Solver constructor unable to allocate Voronoi tessellator!");
+		healthy = false;
+	}
+
 	//bvh = NULL;
 }
 
@@ -115,6 +135,7 @@ solver::~solver()
 {
 	//MK::do not clear owner as it is only a backreference to my owner solverHdl
 
+	//##MK::delete can be applied on NULL
 	if ( recon != NULL ) {
 		delete recon;
 		recon = NULL;
@@ -142,6 +163,14 @@ solver::~solver()
 	if ( cldetect != NULL ) {
 		delete cldetect;
 		cldetect = NULL;
+	}
+	if ( aptcrystallo != NULL ) {
+		delete aptcrystallo;
+		aptcrystallo = NULL;
+	}
+	if ( tessellator != NULL ) {
+		delete tessellator;
+		tessellator = NULL;
 	}
 
 	//if ( bvh != NULL ) {
@@ -252,6 +281,11 @@ void solver::surface_triangulation()
 		stopping( "Unknown triangulation algorithm!");
 	}
 
+
+	if ( Settings::IOTriangulation == true && surf->tipsurface.size() > 0 ) {
+		surf->report_tipsurface();
+	}
+
 #else
 
 	if ( Settings::SurfaceMeshingAlgo == E_NOSURFACE ) {
@@ -302,17 +336,20 @@ void solver::surface_distancing2()
 		//unsigned int nt = static_cast<unsigned int>(omp_get_num_threads());
 		unsigned int mt = static_cast<unsigned int>(omp_get_thread_num());
 
-		apt_xyz RSQR = SQR(Settings::SpatStatRadiusMax); //##MK::max of spat and clustering
+		apt_xyz R = max(Settings::SpatStatRadiusMax, Settings::SurfaceCellsCarvingRadius);
+		apt_xyz RSQR = SQR(R); //##MK::max of spat and clustering
 		sp->db.at(mt)->ion2surfdistance_init( RSQR );
 
 		#pragma omp critical
 		{
-			cout << "Thread " << mt << " initialized distance field for " << sp->db.at(mt)->ionpp3.size() << " ions" << endl;
+			cout << "Thread " << mt << " initialized distance field with R " << R << " for " << sp->db.at(mt)->ionpp3.size() << " ions" << endl;
 		}
 	}
 
 	double toc = MPI_Wtime();
-	owner->tictoc.prof( "Ion2SurfDistInit", APT_GEO, tic, toc);
+	memsnapshot mm = memsnapshot();
+	owner->tictoc.prof_elpsdtime_and_mem( "Ion2SurfDistInit", APT_GEO, APT_IS_PAR, mm, tic, toc);
+
 	cout << "TipSurface distance fields initialized in " << (toc-tic) << " seconds" << endl;
 
 	if ( hullexists == false ) { //done and out
@@ -325,8 +362,11 @@ void solver::surface_distancing2()
 	surf->build_rtree();
 
 	toc = MPI_Wtime();
-	owner->tictoc.prof( "SurfTriangleHullRTreeConstruct", APT_BVH, tic, toc);
+
+	mm = owner->tictoc.get_memoryconsumption();
+	owner->tictoc.prof_elpsdtime_and_mem( "SurfTriangleHullRTreeConstruct", APT_BVH, APT_IS_SEQ, mm, tic, toc);
 	cout << "Building triangle tree BVH " << (toc-tic) << " seconds" << endl;
+	cout << "Now executing surface distancing ..." << endl;
 
 	//cooperative computation of distances region by region
 	tic = MPI_Wtime();
@@ -344,7 +384,7 @@ void solver::surface_distancing2()
 		Tree* mylinkedbvh = surf->bvh;
 
 		//distance values, SQR to avoid sqrt computations, threadmath.closestPointOnTriangle returns squared distance!
-		const apt_xyz R = Settings::SpatStatRadiusMax; //##MK::change at some point to max(spatstat and clustering)
+		const apt_xyz R = max(Settings::SpatStatRadiusMax,Settings::SurfaceCellsCarvingRadius); //##MK::change at some point to max(spatstat and clustering)
 		const apt_xyz RSQR = SQR(R);
 
 		//threadlocal math
@@ -434,14 +474,16 @@ void solver::surface_distancing2()
 	}
 
 	//technically BVH no longer required
-	surf->chop_rtree();
+	//surf->chop_rtree();
 
 	toc = MPI_Wtime();
-	owner->tictoc.prof( "Ion2SurfThreadparallelDistancing", APT_GEO, tic, toc);
+	mm = owner->tictoc.get_memoryconsumption();
+	owner->tictoc.prof_elpsdtime_and_mem( "Ion2SurfThreadparallelDistancing", APT_GEO, APT_IS_PAR, mm, tic, toc);
 	cout << "Computing parallelized distance to surface in " << (toc-tic) << " seconds" << endl;
 }
 
 
+/*
 void solver::characterize_distances()
 {
 	//MK::do something with distance information
@@ -513,10 +555,132 @@ void solver::characterize_distances()
 		}
 
 		double toc = MPI_Wtime();
-		owner->tictoc.prof( "VTKFileOutputIon2Surf", APT_IO, tic, toc);
+		memsnapshot mm = memsnapshot();
+		owner->tictoc.prof_elpsdtime_and_mem( "VTKFileOutputIon2Surf", APT_IO, APT_IS_SEQ, mm, tic, toc);
 	}
 
 	cout << "Ion distance to surface distribution characterized " << endl;
+}
+*/
+
+
+void solver::characterize_tip()
+{
+	if ( Settings::IOReconstruction == true || Settings::IOIonTipSurfDists == true ) {
+		double tic = MPI_Wtime();
+
+		size_t NumberOfIons = 0;
+		size_t nthr = sp->db.size();
+		vector<io_bounds> iohelp( nthr, io_bounds() );
+		vector<io_bounds> topohelp( nthr, io_bounds() );
+		for( size_t thr = MASTER; thr < nthr; thr++ ) {
+			if ( sp->db.at(thr)->ionpp3.size() == sp->db.at(thr)->ion2surf.size() ) {
+				NumberOfIons += sp->db.at(thr)->ionpp3.size();
+				iohelp.at(thr).n = sp->db.at(thr)->ionpp3.size();
+				iohelp.at(thr).s = 0;
+				topohelp.at(thr).n = sp->db.at(thr)->ionpp3.size() * 3; //MK::triplet of Polyvertex keyword, number of vertices, and global vertex ID
+				topohelp.at(thr).s = 0;
+				for ( size_t trailing = 0; trailing < thr; ++trailing ) {
+					iohelp.at(thr).s += iohelp.at(trailing).n;
+					topohelp.at(thr).s += topohelp.at(trailing).n;
+				}
+				iohelp.at(thr).e = iohelp.at(thr).s + iohelp.at(thr).n;
+				topohelp.at(thr).e = topohelp.at(thr).s + topohelp.at(thr).n;
+			}
+			else {
+				complaining( "Container length for ionpp3 and ion2surf inconsistent" ); return;
+			}
+		}
+
+		if ( NumberOfIons >= UINT32MX ) {
+			complaining( "This I/O function cannot handle more than UINT32MX ions change uint32 topology type to size_t" );
+			return;
+		}
+
+		int status = 0;
+		h5iometa ifo = h5iometa();
+		h5offsets offs = h5offsets();
+
+		//##MK::add topology pieces of information allows to filter points in Paraview and VisIt
+		ifo = h5iometa( PARAPROBE_VOLRECON_TOPO, 3*NumberOfIons, 1 );
+		status = owner->resultsh5Hdl.create_contiguous_matrix_u32le( ifo );
+		unsigned int GlobalVertexID = 0; //##MK::change to size_t if more than UINT32MX ions
+
+		ifo = h5iometa( PARAPROBE_VOLRECON_XYZ, NumberOfIons, 3 );
+		status = owner->resultsh5Hdl.create_contiguous_matrix_f32le( ifo );
+
+		ifo = h5iometa( PARAPROBE_VOLRECON_IONTYPE_IDS, NumberOfIons, 1 );
+		status = owner->resultsh5Hdl.create_contiguous_matrix_u8le( ifo );
+
+		if ( Settings::IOIonTipSurfDists == true ) {
+			ifo = h5iometa( PARAPROBE_VOLRECON_SURFDISTSQR, NumberOfIons, 1 );
+			status = owner->resultsh5Hdl.create_contiguous_matrix_f32le( ifo );
+			reporting( "Ion distance I/O corresponding HDF5 groups and datasets initialized" );
+		}
+
+		for( size_t thr = MASTER; thr < nthr; thr++ ) {
+			vector<float> f32thrbuf;
+			vector<unsigned char> u8thrbuf;
+			f32thrbuf.reserve( 3*iohelp.at(thr).n );
+			u8thrbuf.reserve( 1*iohelp.at(thr).n );
+			for( auto it = sp->db.at(thr)->ionpp3.begin(); it != sp->db.at(thr)->ionpp3.end(); ++it ) {
+				f32thrbuf.push_back( it->x );
+				f32thrbuf.push_back( it->y );
+				f32thrbuf.push_back( it->z );
+				unsigned char itypid = (it->m >= static_cast<unsigned int>(UCHARMX)) ? UCHARMX : static_cast<unsigned char>(it->m);
+				//##MK::replace by unsigned short if more than 255 types required
+				u8thrbuf.push_back( itypid );
+			}
+
+			ifo = h5iometa( PARAPROBE_VOLRECON_XYZ, NumberOfIons, 3 );
+			offs = h5offsets( iohelp.at(thr).s, iohelp.at(thr).e, 0, 3, f32thrbuf.size() / 3, 3);
+			cout << "Thread " << thr << " xyz reconstructed coordinates" << endl;
+			status = owner->resultsh5Hdl.write_contiguous_matrix_f32le_hyperslab( ifo, offs, f32thrbuf );
+			cout << status << endl;
+			f32thrbuf = vector<float>();
+
+			ifo = h5iometa( PARAPROBE_VOLRECON_IONTYPE_IDS, NumberOfIons, 1 );
+			offs = h5offsets( iohelp.at(thr).s, iohelp.at(thr).e, 0, 1, u8thrbuf.size(), 1);
+			cout << "Thread " << thr << " iontype reconstructed ions" << endl;
+			status = owner->resultsh5Hdl.write_contiguous_matrix_u8le_hyperslab( ifo, offs, u8thrbuf );
+			cout << status << endl;
+			u8thrbuf = vector<unsigned char>();
+
+			//##MK::we add XDMF Polyvertex topology support
+			//therewith we can filter ions based on attribute data within Paraview
+			vector<unsigned int> u32topobuf( 3*iohelp.at(thr).n, 1 ); //MK::we need to store a triplet of XDMF topology type count and vertex ID
+			size_t ni = sp->db.at(thr)->ionpp3.size();
+			for ( size_t i = 0; i < ni; ++i ) { //two loop instead of one to avoid having to allocate even larger intermediate buffer
+				u32topobuf.at((3*i)+2) = GlobalVertexID;
+				GlobalVertexID++; //consistent numbering of vertices across threads
+			}
+
+			ifo = h5iometa( PARAPROBE_VOLRECON_TOPO, 3*NumberOfIons, 1 );
+			offs = h5offsets( topohelp.at(thr).s, topohelp.at(thr).e, 0, 1, u32topobuf.size(), 1);
+			cout << "Thread " << thr << " topo information" << endl;
+			status = owner->resultsh5Hdl.write_contiguous_matrix_u32le_hyperslab( ifo, offs, u32topobuf );
+			cout << status << endl;
+			u32topobuf = vector<unsigned int>();
+
+			if ( Settings::IOIonTipSurfDists == true ) {
+				ifo = h5iometa( PARAPROBE_VOLRECON_SURFDISTSQR, NumberOfIons, 1);
+				offs = h5offsets( iohelp.at(thr).s, iohelp.at(thr).e, 0, 1, iohelp.at(thr).n, 1);
+				cout << "Thread " << thr << " ion2surf distance squared" << endl;
+				status = owner->resultsh5Hdl.write_contiguous_matrix_f32le_hyperslab( ifo, offs, sp->db.at(thr)->ion2surf );
+				cout << status << endl;
+				//MK::do not delete ion2surf values, will need them still!
+			}
+		}
+
+		string xdmffn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".VolReconstruction.xdmf";
+		//owner->xdmfmetaHdl.create_iondistance_file( xdmffn, NumberOfIons, owner->resultsh5Hdl.h5resultsfn );
+		owner->xdmfmetaHdl.create_volrecon_file( xdmffn, NumberOfIons, owner->resultsh5Hdl.h5resultsfn );
+
+		double toc = MPI_Wtime();
+		memsnapshot mm = memsnapshot();
+		owner->tictoc.prof_elpsdtime_and_mem( "IOHDF5Ion2SurfDistance", APT_IO, APT_IS_SEQ, mm, tic, toc);
+		cout << "Ion distance to surface distribution characterized " << endl;
+	}
 }
 
 
@@ -541,7 +705,8 @@ void solver::init_spatialindexing()
 	} //end of parallel region explicit barrier
 
 	double toc = MPI_Wtime();
-	owner->tictoc.prof( "ThreadparallelKDTreeConstruct", APT_BVH, tic, toc);
+	memsnapshot mm = memsnapshot();
+	owner->tictoc.prof_elpsdtime_and_mem( "ThreadparallelKDTreeConstruct", APT_BVH, APT_IS_PAR, mm, tic, toc);
 
 	tic = MPI_Wtime();
 
@@ -549,7 +714,9 @@ void solver::init_spatialindexing()
 		sp->kdtree_success = true;
 		reporting( owner->get_rank(), "KDTree construction was globally successful!");
 
-		sp->reportpartitioning();
+		if ( Settings::IOKDTreePartitioning == true ) {
+			sp->reportpartitioning();
+		}
 	}
 	else {
 		sp->kdtree_success = false;
@@ -557,8 +724,21 @@ void solver::init_spatialindexing()
 	}
 
 	toc = MPI_Wtime();
-	owner->tictoc.prof( "ThreadparallelKDTreeReportResults", APT_IO, tic, toc);
+	mm = owner->tictoc.get_memoryconsumption();
+	owner->tictoc.prof_elpsdtime_and_mem( "ThreadparallelKDTreeReportResults", APT_IO, APT_IS_SEQ, mm, tic, toc);
 	cout << "Threadlocal KDTrees constructed in parallel in " << (toc-tic) << " seconds" << endl;
+}
+
+
+
+void solver::characterize_crystallography()
+{
+	cout << "Starting with Vicente Araullo-Peters crystallographic feature identification..." << endl;
+	aptcrystallo->compute_crystallography_vicsmethod();
+
+	cout << "Reporting results of crystallographic feature extraction..." << endl;
+	aptcrystallo->report_crystallography_results2();
+	aptcrystallo->delete_crystallography_results();
 }
 
 
@@ -573,7 +753,8 @@ void solver::characterize_spatstat()
 		hometrics->initialize_descrstat_tasks();
 
 		//perform analysis for all tasks using initial assignment of the labels
-		hometrics->compute_generic_spatstat2();
+		//hometrics->compute_generic_spatstat2(); //stable used for Paper14
+		hometrics->compute_generic_spatstat3(); //developmental with ordering
 
 		if ( Settings::SpatStatAddLabelRnd == true ) {
 			//MK::now randomize iontype assignment over entire tip to get randomize spatial statistics
@@ -583,7 +764,8 @@ void solver::characterize_spatstat()
 			rndmizer->apply_shuffled_types_global();
 
 			//so characterize again but this time with randomization
-			hometrics->compute_generic_spatstat2();
+			//hometrics->compute_generic_spatstat2();
+			hometrics->compute_generic_spatstat3();
 
 			rndmizer->reset_original_types_global(); //MK::necessary otherwise subsequent tasks use incorrect physical ion labeling!
 		}
@@ -622,6 +804,136 @@ void solver::characterize_clustering()
 }
 
 
+void solver::tessellate_tipvolume()
+{
+	double tic = MPI_Wtime();
+	memsnapshot mm1 = memsnapshot();
+
+	tessellator->configure( Settings::IOVoronoiDescrStats,
+			Settings::IOVoronoiCellPositions, Settings::IOVoronoiTopoGeom ); //set lean and heavy storage in tessHdl
+
+	//MK::generate one such tessHdl object per running MPI process if want to split hybrid manner tessellation construction
+	#pragma omp parallel shared(mm1)//input parameter shared by default, storetessellation read only so no problem if shared as well
+	{
+		double mytic = omp_get_wtime();
+		int mt = omp_get_thread_num();
+		int nt = omp_get_num_threads();
+
+		#pragma omp master
+		{
+			//master allocates space for pointer to individual threadlocal workers BUT not FOR THEIR HEAVY DATA!
+			for( int thr = 0; thr < nt; ++thr )
+				tessellator->local_tessellations.push_back(NULL);
+
+			if ( tessellator->we_store_tess_metainfo == true ||
+					tessellator->we_store_tess_cellpos == true ||
+						tessellator->we_store_tess_topogeom == true ) {
+				for( int thr = 0; thr < nt; ++thr )
+					tessellator->iohelp.push_back( voro_io_bounds() ); //we dont know the bounds yet...
+			}
+		}
+		#pragma omp barrier //necessary omp master has no barrier and memory needs to be filled before correct address written to it
+
+		//build thread-local instances of tessellation object
+		//the thread-local workers allocate their own memory
+		//given that we are in parallel region they will pull memory preferentially and more frequently
+		//IF AND ONLY IF sufficient local memory still available and OS instructed to have thread pulling from
+		//local memory (this is why we pin the thread by overwriting the thread affinity mask and why it is
+		//useful in addition to overwrite the standard STL malloc3 allocator by e.g. jemalloc
+		//IMPORTANT IS further that we not only allocate the memory (as this will only allocate virtually)
+		//but we have to write to it, this is known as first touch police, so allocate locally and write to it
+		tess* ltess = NULL;
+		ltess = new tess; //##MK::exception handling try/catch
+		ltess->i_store_tess_metainfo = tessellator->we_store_tess_metainfo; //first touch
+		ltess->i_store_tess_cellpos = tessellator->we_store_tess_cellpos;
+		ltess->i_store_tess_topogeom = tessellator->we_store_tess_topogeom;
+		ltess->owner = tessellator;
+		ltess->surfacehull = surf->bvh;
+		ltess->trianglehull = &surf->tipsurface;
+		ltess->surfdistance_ids = &sp->db.at(mt)->ionpp3_ionpp3idx;
+		ltess->surfdistance_vals = &sp->db.at(mt)->ion2surf;
+		//ltess->ion2pp3surf = &sp->db.at(mt)->ion2surf;
+
+		//pull atoms into local objects based on bounds, as this writes to the memory of the tess object it does the first-touch
+		ltess->set_zbounds( sp->spatialsplits.at(mt) );
+		ltess->set_halosize_p3d64( sp->halothickness );
+		ltess->set_haloinfo();
+
+		ltess->pull_ionportion_inplace( sp->db.at(mt)->ionpp3_tess, sp->tip );
+
+		//##MK::clear copy in databasesp->db.at(mt)->ionpp3_tess.clear();
+		sp->db.at(mt)->ionpp3_tess = vector<p3dm3>();
+		//MK::do not clear ionpp3_ionpp3idx, we need this during the build phase to identify
+		//the distance of a point in ionportion to the triangulated surface to potentially avoid
+		//counting Voronoi cell to the surface of the dataset whose topology and geometry in affect by boundary
+		//! MK::this is necessary currently because we do not have a exact triangle manifold and manifold cell intersection algorithm
+
+		ltess->build_tessportion0(); //MK::does not make any correction attempt for cells at boundary just detects them based on distance and does not report them subsequently
+		//! MK::this allows to erode the surface Voronoi cells with incomplete or faulty geometry from the dataset
+		//! MK::without recomputing the exact distance of a point to the surface regardless whether hull is a manifold or not
+
+		//ltess->build_tessportion1(); //MK::does not get cells at the surface correct, ackward spaceship-formed-elongated cells even for deeper embedded ions how numerically never make wall contact
+		//ltess->build_tessportion2(); //MK::not tested but not expected to work because for cases of concave/convex local surface patch configurations fit plane cannot SO FAR simplistically assured to be always in front or on the ion position hence cut procedure by bisecting with fake voronoi cell generator point to use voroxx plane function does not work consistently
+		//ltess->build_tessportion3(); //MK::excludes cell if respective ion is closer to the boundary than R <= Settings::SpatialStatsRadiusMax
+		//##MK::pull a memory snapshot of program here because now heavy data still exist in memory!
+
+		//now we do not need any longer the ionpp3_ionpp3idx helper array
+		sp->db.at(mt)->ionpp3_ionpp3idx = vector<unsigned int>();
+
+		#pragma omp master
+		{
+			mm1 = owner->tictoc.get_memoryconsumption();
+		}
+		//necessary all data have to be processed before cooperatively instructing further tasks
+		double mytoc = omp_get_wtime();
+
+		#pragma omp critical
+		{
+			tessellator->local_tessellations.at(mt) = ltess; //linking address of thread-local object data to tessHdl necessary at the latest here before cooperative stuff
+
+			if ( tessellator->we_store_tess_metainfo == true ) {
+				//communicate storage demands
+				//if ( ltess->myprecisiondemand.prec > allprecisiondemand.prec ) { allprecisiondemand.prec = ltess->myprecisiondemand.prec; }
+				tessellator->allprecisiondemand.n_cells += ltess->myprecisiondemand.n_cells;
+				tessellator->iohelp.at(mt).cell_n = ltess->myprecisiondemand.n_cells;
+
+				if (  tessellator->we_store_tess_topogeom == true ) {
+					tessellator->allprecisiondemand.n_topo += ltess->myprecisiondemand.n_topo;
+					tessellator->allprecisiondemand.n_geom += ltess->myprecisiondemand.n_geom;
+					//communicate also io implicit array bound demands for writing data
+					tessellator->iohelp.at(mt).topo_n = ltess->myprecisiondemand.n_topo;
+					tessellator->iohelp.at(mt).geom_n = ltess->myprecisiondemand.n_geom;
+					//MK::latter values will be translated into absolute position intervals on implicit 1d data arrays during I/O operation
+				}
+			}
+			cout << "Thread " << mt << " building local tessellation took " << (mytoc-mytic) << " seconds" << endl;
+		}
+	} //end of parallel region
+
+	double toc = MPI_Wtime();
+	owner->tictoc.prof_elpsdtime_and_mem( "ComputeTessellation", APT_TES, APT_IS_PAR, mm1, tic, toc);
+	cout << "Voro++ powered threaded Voronoi tessellation computation completed took " << (toc-tic) << " seconds" << endl;
+
+	tic = MPI_Wtime();
+
+	//##MK::consider in the future to do multi-threaded I/O still
+	//tessellator->report_tessellation_contiguous_atonce(); //##MK::in the future change
+#ifdef VALIDZONE_IONS_ONLY
+	tessellator->report_tessellation_hyperslab_perthread();
+#else
+	//##MK::use the following function only in combination with undefined VALIDZONE_IONS_ONLY
+	//to report per thread based results with halo regions
+	tessellator->report_tessellation_hyperslab_onlythethread();
+#endif
+
+	toc = MPI_Wtime();
+	memsnapshot mm2 = owner->tictoc.get_memoryconsumption();
+	owner->tictoc.prof_elpsdtime_and_mem( "HDF5XDMFReportVoronoiTess", APT_IO, APT_IS_SEQ, mm2, tic, toc);
+	cout << "HDF5/XDMF based reporting of tessellation completed took " << (toc-tic) << " seconds" << endl;
+}
+
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 reconstructor::reconstructor()
@@ -646,68 +958,6 @@ reconstructor::~reconstructor()
 	}
 }
 
-/*
-bool reconstructor::reconstruction_accept_synthetic( void )
-{
-	double tic = MPI_Wtime();
-
-	//feed through rawdata_pos/_epos, where are they?
-	solverHdl* here = owner->owner;
-
-	//MK::if process pragma omp parallel here potential to comply with first touch policy that OpenMP threads get portions of the rawdata in threadlocal memory
-	//MK::HOWEVER, at this stage the rawdata in the solverHdl object are not necessarily reconstructed yet, therefore we have only a very approximate
-	//MK>>idea of a good spatial partitioning of these, in particular if we seek to reconstruct no all ions, therefore, we better build the OpenMP
-	//thread/local stuff after the reconstruction...
-
-	vector<p3d>* wpbucket = NULL;
-	vector<unsigned int>* wlbucket = NULL;
-	try {
-		wpbucket = new vector<p3d>;
-		wlbucket = new vector<unsigned int>;
-	}
-	catch (bad_alloc &reconexc) {
-		complaining( "Unable to allocate memory in reconstructor for storing synthetic ion locations");
-		return false;
-	}
-
-	size_t nb = here->rawdata_alf.buckets.size();
-	for ( size_t b = 0; b < nb; ++b ) {
-		vector<p3dm1>* rbucketsynth = NULL;
-		rbucketsynth = here->rawdata_alf.buckets.at(b);
-		if ( rbucketsynth != NULL ) {
-			for ( size_t i = 0; i < rbucketsynth->size(); ++i ) {
-				wpbucket->push_back( p3d(
-						rbucketsynth->at(i).x,
-						rbucketsynth->at(i).y,
-						rbucketsynth->at(i).z ) );
-				wlbucket->push_back( rbucketsynth->at(i).m );
-			}
-		}
-	}
-
-	//register in pp3
-	pp3.push_back(NULL);
-	pp3.back() = wpbucket;
-	lbls.push_back(NULL);
-	lbls.back() = wlbucket;
-
-	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "SynthReconstruction", APT_REC, tic, toc);
-	reporting( "Reconstruction synthesized in " + to_string(toc-tic) + " seconds");
-
-	if ( Settings::IOReconstruction == true ) {
-		tic = MPI_Wtime();
-
-		string fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".SyntheticRecon.vtk";
-		reconstruction_vtk( pp3, lbls, runparm( 0.f, 0.f, 0.f, 0, 0, 0), fn );
-
-		toc = MPI_Wtime();
-		owner->owner->tictoc.prof( "VTKFileOutputReconstruction", APT_IO, tic, toc);
-	}
-
-	return true;
-}
-*/
 
 
 bool reconstructor::reconstruction_accept_sequential( void )
@@ -749,10 +999,13 @@ bool reconstructor::reconstruction_accept_sequential( void )
 			}
 		}
 
+//cout << "Reconstruction accept bucket b/n number of buckets " << b << ";" << n << endl;
+
+		//a bucket can at least be empty
 		pp3.push_back(NULL);
 		lbls.push_back(NULL);
 
-		if ( n > 0) { //data exist
+		if ( n > 0) { //if data exist...
 			vector<p3d>* wpbucket = NULL;
 			vector<unsigned int>* wlbucket = NULL;
 			try {
@@ -791,24 +1044,29 @@ bool reconstructor::reconstruction_accept_sequential( void )
 				}
 			}
 			//register atom in pp3 and lbls
-			pp3.back() = wpbucket;
-			lbls.back() = wlbucket;
+			//it gets filled
+			pp3.at(b) = wpbucket;
+			lbls.at(b) = wlbucket;
+
+//cout << "Added databucket pp3.size()/lbls.size() " << pp3.back()->size() << ";" << lbls.back()->size() << endl;
 		}
 	} //process next bin
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "AcceptReconstruction", APT_REC, tic, toc);
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "AcceptReconstruction", APT_REC, APT_IS_SEQ, mm, tic, toc);
 	reporting( "Reconstruction accepted in " + to_string(toc-tic) + " seconds");
 
-	if ( Settings::IOReconstruction == true ) {
+	/*if ( Settings::IOReconstruction == true ) {
 		tic = MPI_Wtime();
 
 		string fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".AcceptedRecon.vtk";
 		reconstruction_vtk( pp3, lbls, runparm( 0.f, 0.f, 0.f, 0, 0, 0), fn );
 
 		toc = MPI_Wtime();
-		owner->owner->tictoc.prof( "VTKFileOutputReconstruction", APT_IO, tic, toc);
-	}
+		memsnapshot mm = memsnapshot();
+		owner->owner->tictoc.prof_elpsdtime_and_mem( "VTKFileOutputReconstruction", APT_IO, APT_IS_SEQ, mm, tic, toc);
+	}*/
 
 	return true;
 }
@@ -983,6 +1241,7 @@ bool reconstructor::reconstruction_default_sequential()
 		}
 	}
 
+	memsnapshot mm1 = owner->owner->tictoc.get_memoryconsumption();
 	delete [] ang;
 	delete [] thetaP;
 	delete [] theta;
@@ -1015,19 +1274,21 @@ bool reconstructor::reconstruction_default_sequential()
 
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "BasEtAlReconstruction", APT_REC, tic, toc);
+	memsnapshot mm2 = owner->owner->tictoc.get_memoryconsumption();
+	memsnapshot mm = (mm2.residentmem < mm1.residentmem) ? mm1 : mm2;
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "BasEtAlReconstruction", APT_REC, APT_IS_SEQ, mm, tic, toc);
 	string mess = "Reconstruction including memory setup took " +  to_string(toc - tic) + " seconds!";
 	reporting( here->get_rank(), mess);
 
-	if ( Settings::IOReconstruction == true ) {
+	/*if ( Settings::IOReconstruction == true ) {
 		tic = MPI_Wtime();
 
 		string fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".BasEtAlRecon.vtk";
 		reconstruction_vtk( pp3, lbls, runparm( ETA, KF, ICF, 0, 0, 0), fn );
 
 		toc = MPI_Wtime();
-		owner->owner->tictoc.prof( "VTKFileOutputReconstruction", APT_REC, tic, toc);
-	}
+		owner->owner->tictoc.prof_elpsdtime_and_mem( "VTKFileOutputReconstruction", APT_REC, APT_IS_SEQ, mm, tic, toc);
+	}*/
 
 	return true;
 }
@@ -1037,8 +1298,10 @@ threadmemory::threadmemory()
 {
 	owner = NULL;
 	threadtree = NULL;
+	tessmii = p6d64();
+	tesshalowidth = p3d64();
 	zmi = F32MX;
-	zmi = F32MI;
+	zmx = F32MI;
 	melast = false;
 }
 
@@ -1052,11 +1315,13 @@ threadmemory::~threadmemory()
 }
 
 
-bool threadmemory::init_localmemory( const apt_xyz zmin, const apt_xyz zmax, const bool mlast )
+bool threadmemory::init_localmemory( p6d64 const & mybounds, p3d64 const & myhalo, const bool mlast )
 {
 	//MK::CALLED FROM WITHIN PARALLEL REGION
-	zmi = zmin;
-	zmx = zmax;
+	tessmii = mybounds;
+	tesshalowidth = myhalo;
+	zmi = mybounds.zmi;
+	zmx = mybounds.zmx;
 	melast = mlast;
 	return true;
 }
@@ -1081,6 +1346,9 @@ bool threadmemory::read_localions()
 	size_t nb = nbp;
 	//cout << "--->Read localions nb/nbp/nbl\t\t" << nb << "\t\t" << nbl << "\t\t" << nbl << endl;
 
+	bool TessellationYesOrNo = (Settings::VolumeTessellation != E_NOTESS) ? true : false;
+	//size_t IonLeakage = 0;
+	unsigned int worldid = 0; //MK::consecutive ID to remain capable of storing in the measured ion evaporation sequence
 	for(size_t b = 0; b < nb; ++b) {
 		vector<p3d>* thesepoints = pointshere->pp3.at(b);
 		vector<unsigned int>* theselabels = labelshere->lbls.at(b);
@@ -1088,26 +1356,113 @@ bool threadmemory::read_localions()
 			size_t pn = thesepoints->size();
 			size_t ln = theselabels->size();
 			if ( pn == ln ) {
+				//two case, if a tessellation at some point is desired we store ions and halo
+				//##MK::leaner would be to store only halo additionally
+				apt_real local_zmi = tessmii.zmi; //by construction the same as zmi
+				apt_real local_zmx = tessmii.zmx; //by construction the same as zmx
+				apt_real voro_zmi = tessmii.zmi - tesshalowidth.z;
+				apt_real voro_zmx = tessmii.zmx + tesshalowidth.z;
+				for( size_t i = 0; i < pn; ++i, worldid++ ) { //pruning most likely not even in halo
+					p3dm1 pp = p3dm1(thesepoints->at(i).x, thesepoints->at(i).y, thesepoints->at(i).z, theselabels->at(i));
+					if ( TessellationYesOrNo == true ) {
+						if ( pp.z >= local_zmi && pp.z < local_zmx && pp.z >= zmi && pp.z < zmx) { //construction of this->zmi and this->zmx assures they are pairwise the same
+							//in the region for a valid zone ion + the threadlocal subdomain
+							ionpp3.push_back( pp );
+							//the length of ionpp3_tess is potentially longer than of ionpp3 because for tessellation we need a haloregion
+							//while for normal tasks we dont
+							ionpp3_tess.push_back( p3dm3(pp.x, pp.y, pp.z, worldid, VALIDZONE_ION, pp.m) );
+							//derived threadlocal quantities like ion2surf are ordered as in ionpp3
+
+							//we need a helper array on ionpp3_tess which identifies whether distance information
+							//is available (it is only for VALIDZONE_IONs) and an array index were we can find it on the threadlocal ion2surf
+							ionpp3_ionpp3idx.push_back( ionpp3.size()-1 );
+						}
+						else if ( pp.z >= voro_zmi && pp.z < voro_zmx ) { //MK::important to use else if cause domain volume needs to be excluded!
+							ionpp3_tess.push_back( p3dm3(pp.x, pp.y, pp.z, worldid, GUARDZONE_ION, pp.m) );
+							ionpp3_ionpp3idx.push_back( DO_NOT_DEREFERENCE );
+						}
+						else {
+							/*#pragma omp critical
+							{
+								cout << "Leakage1 " << setprecision(32) << pp.x << ";" << pp.y << ";" << pp.z << endl;
+								cout << "localzmi/zmx " << local_zmi << ";" << local_zmx << ";" << " zmi/zmx " << zmi << ";" << zmx << endl;
+							}
+							IonLeakage++;*/
+							continue;
+						}
+					}
+					else {
+						if ( pp.z >= zmi && pp.z < zmx) {
+							//in the region for a valid zone ion + the threadlocal subdomain
+							ionpp3.push_back( pp );
+						}
+						else {
+							/*#pragma omp critical
+							{
+								cout << "Leakage2 " << setprecision(32) << pp.x << ";" << pp.y << ";" << pp.z << endl;
+								cout << "zmi/zmx " << zmi << ";" << zmx << endl;
+							}
+							IonLeakage++;*/
+							continue;
+						}
+					}
+					//formulating it like this is a little bit less efficient in terms of branch prediction
+					//but avoids running two loop solution as shown below
+				}
+/*
+				//MK::the ionpp3_ionpp3idx array allows to trace back the implicit ID/name of the ion
+				//if a value in this array reads UINT32MX it indicates that this ion is a guardzone ion an hence
+				//has no corresponding reference to an ion_pp3 ion because guardzone ions are copies outside the
+				//region the thread is responsible for and guardzone ions are only used to assure a consistent
+				//computation of the tessellation!
+
+				//old two loop solution
+				if ( Settings::VolumeTessellation != E_NOTESS ) { //tessellation eventually done
+					apt_real local_zmi = tessmii.zmi;
+					apt_real local_zmx = tessmii.zmx;
+					apt_real voro_zmi = tessmii.zmi - tesshalowidth.z;
+					apt_real voro_zmx = tessmii.zmx + tesshalowidth.z;
+					for( size_t i = 0; i < pn; ++i ) { //pruning most likely not even in halo
+						if ( thesepoints->at(i).z < voro_zmi )
+							continue;
+						if ( thesepoints->at(i).z >= voro_zmx )
+							continue;
+						//one of mine, either in local region or halo i.e. VALIDATOM or GUARDATOM
+						if ( thesepoints->at(i).z >= local_zmi && thesepoints->at(i).z < local_zmx ) { //##MK::handle global ion order
+							ionpp3_tess.push_back( p3dm3(thesepoints->at(i).x, thesepoints->at(i).y,
+									thesepoints->at(i).z, 0, VALIDZONE_ION, theselabels->at(i)) );
+						}
+						else { //in guardzone
+							ionpp3_tess.push_back( p3dm3(thesepoints->at(i).x, thesepoints->at(i).y,
+									thesepoints->at(i).z, 0, GUARDZONE_ION, theselabels->at(i)) );
+						}
+					}
+				}
 				for(size_t i = 0; i < pn; ++i) { //z < zmii ? not included : (z < zmxx) ? included : not included
 					if ( thesepoints->at(i).z < zmi )
 						continue;
-
 					if ( thesepoints->at(i).z < zmx )
-						ionpp3.push_back( p3dm1(thesepoints->at(i).x,  thesepoints->at(i).y,  thesepoints->at(i).z, theselabels->at(i)) );
+						ionpp3.push_back( p3dm1(thesepoints->at(i).x,
+								thesepoints->at(i).y, thesepoints->at(i).z, theselabels->at(i)) );
 					else
 						continue;
 				}
+*/
 			}
 		}
 		else if ( thesepoints == NULL && theselabels == NULL ) {
-			//cout << "--->Bucket " << b << " empty" << endl;
-			//stopping("Inaccessible pn and ln in read thread-local geometry and label bucket information");
-			//return false;
+			//the bucket is empty but that should not mean that we have a problem
+			//remember that the thesepoints/and synchronized theselabel buckets index points spatially
 		}
 		else {
-			stopping("Inaccessible pn or ln in read thread-local geometry and label bucket information");
+			stopping("Status of thesepoints is inconsistent with theselabel bucket");
 			return false;
 		}
+	}
+
+	#pragma omp critical
+	{
+		cout << "Thread " << omp_get_thread_num() << " read_localions ionpp3.size() << " << ionpp3.size() << " ionpp3_tess.size() " << ionpp3_tess.size() << " worldid " << worldid << endl; //"ion leakage is " << IonLeakage << endl;
 	}
 	return true;
 }
@@ -1122,6 +1477,7 @@ inline size_t threadmemory::rectangular_transfer( const apt_xyz pos, const apt_x
 	//because total bin grid width is nx include left guard zone 1+ .......  +1 right guard zone at nx-1 last addressible bin ix nx-2
 	return loc;
 }
+
 
 void threadmemory::binning( sqb const & vxlgrid )
 {
@@ -1230,6 +1586,7 @@ void threadmemory::ion2surfdistance_init( const apt_xyz val )
 	for(size_t i = 0; i < ni; ++i) {
 		ion2surf.push_back( val ); //mentality distance is at least val
 	}
+	//MK::see that using such looping the implicit order of ion names is the same on ionpp3 and ion2surf
 }
 
 
@@ -1322,6 +1679,7 @@ inline bool threadmemory::me_last() const
 }
 
 
+
 inline size_t threadmemory::get_memory_consumption()
 {
 	size_t bytes = 0;
@@ -1343,7 +1701,9 @@ inline size_t threadmemory::get_memory_consumption()
 
 decompositor::decompositor()
 {
+	halothickness = p3d64();
 	kdtree_success = false;
+
 	owner = NULL;
 	healthy = true;
 }
@@ -1430,8 +1790,11 @@ void decompositor::tip_aabb_get_extrema()
 
 	tip = tipSEQ;
 
+	cout << "Worldcoordinate system tip bounding box is " << tip << endl;
+
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "IonPositionExtrema", APT_UTL, tic, toc);
+	memsnapshot mm = memsnapshot();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "IonPositionExtrema", APT_UTL, APT_IS_SEQ, mm, tic, toc);
 	cout << "TipSEQ AABB identified " << (toc-tic) << " seconds!" << endl;
 
 /*
@@ -1463,7 +1826,7 @@ cout << "PARAPROBE_NUM_THREADS = " << PARAPROBE_NUM_THREADS << endl;
 
 cout << "Analyzing point spatial distribution in z for load balancing..." << endl;
 	//read z coordinates based on which we spatially decompose
-	vector<apt_xyz> zcoordinates;
+	vector<apt_real> zcoordinates;
 
 	//##MK::for larger datasets (>1.0e9 ions) the effort to sort the list zcoordinates is O(NlogN) may be too way to high, than better random sampling to get approximate quantile locations in z
 	//however APT datasets with strong heterogeneity, should always be fully probed, i.e. no random probing
@@ -1480,10 +1843,11 @@ cout << "Analyzing point spatial distribution in z for load balancing..." << end
 	}
 
 cout << zcoordinates.size() << " z-coordinate values extracted, now sorting them..." << endl;
-	//sort once ascendingly
+
+	//full sort ascendingly of zcoordinates, speed up by sampling each n-th only
 	sort(zcoordinates.begin(), zcoordinates.end() );
 
-	//when there is a stack of N domains we split N-1 times
+	//when there is a stack of N domains we have to split N-1 times
 	vector<apt_real> qqss;
 	for(unsigned int tid = 1; tid < PARAPROBE_NUM_THREADS; tid++ ) {
 		apt_real thisq = static_cast<apt_real>(tid) / static_cast<apt_real>(PARAPROBE_NUM_THREADS);
@@ -1496,9 +1860,25 @@ cout << zcoordinates.size() << " z-coordinate values extracted, now sorting them
 		cout << "Loadbalancing zmx via z-coordinate quantiles for thread " << i << "\t\t" << qq.at(i) << endl;
 	}
 
+	if ( Settings::VolumeTessellation != E_NOTESS ) {
+		//compute additional bounds when any tessellation is desired for which eventually halo regions are required
+		apt_real lambda = static_cast<apt_real>(zcoordinates.size()) / (tip.xsz*tip.ysz*tip.zsz);
+		//z guard is five times the average distance between points
+		halothickness.x = 0.f; 	halothickness.y = 0.f;
+		apt_real halowidth = Settings::TessellationGuardWidth * pow( (-1.f * log(0.5) * 3.f/(4.f*PI*lambda)), (1.f/3.f) );
+		if ( PARAPROBE_NUM_THREADS > 1 ) { //halo in case of one thread only is only AABBINCLUSION_EPSILON wide to prevent leakage of ions at boundary
+			halothickness.z = halowidth;
+		}
+		else { //SINGLETHREADED
+			halothickness.z = static_cast<apt_real>(AABBINCLUSION_EPSILON);
+		}
+		cout << "Threaded " << omp_get_thread_num() << " tessellating halothickness " << halothickness.z << endl;
+	}
+
 	//build threadlocal partitioning objects
 	for(size_t mt = MASTER; mt < PARAPROBE_NUM_THREADS; mt++) {
 		db.push_back(NULL);
+		spatialsplits.push_back( p6d64() );
 	}
 
 
@@ -1507,13 +1887,21 @@ cout << zcoordinates.size() << " z-coordinate values extracted, now sorting them
 		unsigned int nt = static_cast<unsigned int>(omp_get_num_threads()); //##MK::what is the default behavior of parallel region start with all?
 		unsigned int mt = static_cast<unsigned int>(omp_get_thread_num());
 
-		apt_real zmii = (mt == MASTER) ? zcoordinates.at(0) : qq.at(mt-1);
-		apt_real zmxx = (mt == (nt-1)) ? (zcoordinates.back() + EPSILON) : qq.at(mt);
+		p6d64 mii = p6d64();
+		mii.zmi = (mt == MASTER) ? (static_cast<apt_real>(zcoordinates.at(0)) - static_cast<apt_real>(AABBINCLUSION_EPSILON)) : qq.at(mt-1);
+		mii.zmx = (mt == (nt-1)) ? (static_cast<apt_real>(zcoordinates.back()) + static_cast<apt_real>(AABBINCLUSION_EPSILON)) : qq.at(mt);
+		//epsilon environment expansion to catch points exactly on boundary
+		//##MK::thereby formally thread local domains at least formally slightly overlap
+		//but cells to ion ID mapping is disjoint hence even potential extrem cases double computed VC cells
+		//cells are always referred to only once in postprocessable of tessellation result
+
 		bool last = (mt == (nt-1)) ? true : false;
 
 		#pragma omp critical
 		{
-			cout << "Thread " << omp_get_thread_num() << " working on [" <<  zmii << ";" << zmxx << ") is last? " << last << endl;
+			spatialsplits.at(mt) = mii;
+			cout << "Thread " << omp_get_thread_num() << " working on ["
+					<< spatialsplits.at(mt).zmi << ";" << spatialsplits.at(mt).zmx << ") is last? " << last << endl;
 		}
 
 		//MK::points belong to mt if their z position in [zmii, zmxx) for which we probe as follows left boundary z < zmii ? not included : (z < zmxx) ? included : not included
@@ -1523,7 +1911,8 @@ cout << zcoordinates.size() << " z-coordinate values extracted, now sorting them
 			memlocal = new threadmemory; //allocate surplus first-touch
 			memlocal->owner = this;
 
-			memlocal->init_localmemory( zmii, zmxx, last );
+			p3d64 miihalo = halothickness;
+			memlocal->init_localmemory( mii, miihalo, last );
 
 			bool status = memlocal->read_localions();
 
@@ -1539,7 +1928,8 @@ cout << zcoordinates.size() << " z-coordinate values extracted, now sorting them
 	}
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "Loadpartitioning", APT_BVH, tic, toc);
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "Loadpartitioning", APT_BVH, APT_IS_PAR, mm, tic, toc);
 	cout << "Decompositor computed a balanced loadpartitioning along Z in " << (toc-tic) << " seconds" << endl;
 }
 
@@ -1721,7 +2111,8 @@ bool surfacer::read_vtk_io_tipsurface( const string vtk_io_fn )
 	}
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "VTKFileInputSurfTrianguleHull", APT_IO, tic, toc);
+	memsnapshot mm = memsnapshot();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "VTKFileInputSurfTriangleHull", APT_IO, APT_IS_SEQ, mm, tic, toc);
 	cout << "TipSurface with " << tipsurface.size() << " triangles loaded from file " << vtk_io_fn << " successfully in " << (toc-tic) << " seconds" << endl;
 	return true;
 }
@@ -2069,10 +2460,12 @@ bool surfacer::pruning_candidates( const apt_xyz db, vector<p3d> & cand )
 
 	seq_filter_candidates( cand );
 
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+
 	del_pruning_mem();
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "PruningIonsSurfaceTriangulation", APT_UTL, tic, toc);
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "PruningIonsSurfaceTriangulation", APT_UTL, APT_IS_SEQ, mm, tic, toc);
 	cout << "\t\tWorker " << owner->owner->get_rank() << " " << setprecision(6) << "cand.size() " << cand.size() << endl;
 	cout << "\t\t" << (1.0 - ((double) cand.size()) / ((double) (owner->owner->nevt)))*100.0 << "% ions pruned from the measurement with binning " << grid.width << " nm" << endl;
 	cout << "Requiring grid nxyz " << grid.nx << ";" << grid.ny << ";" << grid.nz << " bins " << grid.nxyz << " in total in " << setprecision(18) << (toc-tic)  << " seconds" << endl;
@@ -2108,7 +2501,8 @@ bool surfacer::alphashape_core( vector<p3d> const & inp )
 	}
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "SurfTriangulationDelaunayConstruct", APT_GEO, tic, toc);
+	memsnapshot mm1 = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "SurfTriangulationDelaunayConstruct", APT_GEO, APT_IS_SEQ, mm1, tic, toc);
 	cout << "CGAL::Delaunay data structure with total of " << ncand << " points initialized in " << (toc-tic) << endl;
 
 	tic = MPI_Wtime();
@@ -2123,15 +2517,28 @@ bool surfacer::alphashape_core( vector<p3d> const & inp )
 	cout << "Smallest alpha value to get a solid through data points is " << alpha_solid << endl;
 	cout << "Optimal alpha value to get one connected component is " << *opt << endl;
 
+	memsnapshot mm2 = owner->owner->tictoc.get_memoryconsumption();
+
 	//set shape to automatically determined optimum
-	//as.set_alpha(*opt);
-	as.set_alpha(alpha_solid);
-	cout << "Taking the smallest alpha value to get a solid through data points is " << alpha_solid << " for triangulation" << endl;
-	assert(as.number_of_solid_components() == 1); //##MK::
+	if ( Settings::SurfaceAShapeAValue == E_ASHAPE_SMALLEST_SOLID) {
+		cout << "Taking the smallest alpha value to get a solid through data points is " << alpha_solid << " for triangulation" << endl;
+		as.set_alpha(alpha_solid);
+	}
+	else if ( Settings::SurfaceAShapeAValue == E_ASHAPE_CGAL_OPTIMAL) {
+		cout << "Taking the CGAL optimal value to get a solid through data points is " << *opt << " for triangulation" << endl;
+		as.set_alpha(*opt);
+	}
+	else {
+		cout << "Taking the CGAL optimal value to get a solid through data points is " << *opt << " for triangulation" << endl;
+		as.set_alpha(alpha_solid);
+	}
+
+	cout << "The number of solid components of the CGAL alpha shape is " << as.number_of_solid_components() << endl;
 
 	toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "SurfTriangulationAlphaShapeConstruct", APT_GEO, tic, toc);
-	cout << "CGAL::Delaunay-based alpha shape generated and assessed in " << (toc-tic) << endl;
+	memsnapshot mm3 = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "SurfTriangulationAlphaShapeConstruct", APT_GEO, APT_IS_SEQ, mm3, tic, toc);
+	cout << "CGAL::Delaunay-based alpha shape generated and assessed in " << (toc-tic) << " seconds" << endl;
 
 	//extract triangulation
 	tic = MPI_Wtime();
@@ -2198,18 +2605,20 @@ bool surfacer::alphashape_core( vector<p3d> const & inp )
 
 //cout << "VUni/Tri.size() " << vuni.size() << "\t\t" << tri.size() << endl;
 	toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "SurfTriangulationAlphaShapeTriExtract", APT_GEO, tic, toc);
+	memsnapshot mm4 = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "SurfTriangulationAlphaShapeTriExtract", APT_GEO, APT_IS_SEQ, mm4, tic, toc);
 	cout << "Extracted triangularized tip surface (" << nf << "/" << tri.size() << " triangles in total) in " << (toc-tic) << " seconds" << endl;
 
+	/*
+	//##MK::deprecated
 	if ( Settings::IOTriangulation == true ) {
 		tic = MPI_Wtime();
-
 		string fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".TipSurface.vtk";
 		triangulation_vtk_naive( tipsurface, fn );
-
 		toc = MPI_Wtime();
-		owner->owner->tictoc.prof( "VTKFileOutputSurfaceTriangleHull", APT_IO, tic, toc);
-	}
+		memsnapshot mm = memsnapshot();
+		owner->owner->tictoc.prof_elpsdtime_and_mem( "VTKFileOutputSurfaceTriangleHull", APT_IO, APT_IS_SEQ, mm, tic, toc);
+	}*/
 
 #endif
 
@@ -2320,6 +2729,12 @@ bool surfacer::build_rtree()
 		triid++;
 	}
 
+	if ( Settings::IOTriangulationBVH == true ) {
+		//report all nodes of the resulting tree
+		string csvfn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".AABBTree.csv";
+		bvh->report_tree( csvfn );
+	}
+
 	return true;
 }
 
@@ -2327,6 +2742,66 @@ bool surfacer::build_rtree()
 void surfacer::chop_rtree()
 {
 	delete bvh; bvh = NULL;
+}
+
+
+void surfacer::report_tipsurface()
+{
+	double tic = MPI_Wtime();
+
+	vector<unsigned int> wuibuf;
+	wuibuf.resize((1+1+3)*tipsurface.size()); //total number of elements 5E6*5*4B so <=100MB
+	//+1 first index identifies geometric primitive, here triangle polygon
+	//+1 second index tells how many elements to excepttypefor XDMF is XDMF keyword what we see
+	size_t i = 0;
+	size_t j = 0;
+	size_t v = 0;
+	for( i = 0; i < tipsurface.size(); i++ ) {
+		wuibuf[j+0] = 3; //primitive key
+		wuibuf[j+1] = 3; //number of vertices to form the primitive
+		wuibuf[j+2] = v+0; //vertex IDs
+		wuibuf[j+3] = v+1;
+		wuibuf[j+4] = v+2;
+		j = j + 5;
+		v = v + 3; //##MK::multiple counting
+	}
+	int status = 0;
+	h5iometa ifo = h5iometa( PARAPROBE_SURFRECON_ASHAPE_HULL_TOPO, 5*tipsurface.size(), 1 );
+	status = owner->owner->resultsh5Hdl.create_contiguous_matrix_u32le( ifo );
+	h5offsets offs = h5offsets( 0, 5*tipsurface.size(), 0, 1, 5*tipsurface.size(), 1);
+	status = owner->owner->resultsh5Hdl.write_contiguous_matrix_u32le_hyperslab( ifo, offs, wuibuf );
+	wuibuf.clear();
+
+	vector<float> wfbuf;
+	wfbuf.resize(3*3*tipsurface.size()); //total number of elements 5E6*9*4B so <=180MB
+	i = 0;
+	j = 0;
+	for( i = 0; i < tipsurface.size(); i++ ) {
+		wfbuf[j+0] = tipsurface[i].x1; //reinterleave
+		wfbuf[j+1] = tipsurface[i].y1;
+		wfbuf[j+2] = tipsurface[i].z1;
+		wfbuf[j+3] = tipsurface[i].x2;
+		wfbuf[j+4] = tipsurface[i].y2;
+		wfbuf[j+5] = tipsurface[i].z2;
+		wfbuf[j+6] = tipsurface[i].x3;
+		wfbuf[j+7] = tipsurface[i].y3;
+		wfbuf[j+8] = tipsurface[i].z3;
+		j = j + 9;
+	}
+	ifo = h5iometa( PARAPROBE_SURFRECON_ASHAPE_HULL_GEOM, 3*tipsurface.size(), 3 );
+	status = owner->owner->resultsh5Hdl.create_contiguous_matrix_f32le( ifo );
+	offs = h5offsets( 0, 3*tipsurface.size(), 0, 3, 3*tipsurface.size(), 3);
+	status = owner->owner->resultsh5Hdl.write_contiguous_matrix_f32le_hyperslab( ifo, offs, wfbuf );
+	//peak memory consumption
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+	wfbuf.clear();
+
+	string xdmffn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".TriangleHull.xdmf";
+	owner->owner->xdmfmetaHdl.create_tipsurface_file( xdmffn, tipsurface.size(),
+			5*tipsurface.size(), 9*tipsurface.size(), owner->owner->resultsh5Hdl.h5resultsfn );
+
+	double toc = MPI_Wtime();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "HDF5XDMFReportTriangleHull", APT_IO, APT_IS_SEQ, mm, tic, toc);
 }
 
 
@@ -2393,7 +2868,8 @@ void rndlabeler::learn_original_types_global()
 	}
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "RndLabelingLearnOldLabelsGlobal", APT_UTL, tic, toc);
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "RndLabelingLearnOldLabelsGlobal", APT_UTL, APT_IS_SEQ, mm, tic, toc);
 	cout << "Learning initial iontypes took " << (toc-tic) << " seconds" << endl;
 }
 
@@ -2421,7 +2897,8 @@ void rndlabeler::shuffle_types_mt19937()
 	}
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "RndLabelingShuffleTypesMT19937Global", APT_UTL, tic, toc);
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "RndLabelingShuffleTypesMT19937Global", APT_UTL, APT_IS_SEQ, mm, tic, toc);
 	cout << "Randomizing iontypes took " << (toc-tic) << " seconds" << endl;
 }
 
@@ -2459,7 +2936,8 @@ void rndlabeler::apply_shuffled_types_global()
 		//or shuffled == false with any value of applied, was not even shuffled
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "RndLabelingApplyNewLabelsGlobal", APT_UTL, tic, toc);
+	memsnapshot mm = memsnapshot();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "RndLabelingApplyNewLabelsGlobal", APT_UTL, APT_IS_SEQ, mm, tic, toc);
 	cout << "Applying randomized iontypes took " << (toc-tic) << " seconds" << endl;
 }
 
@@ -2500,7 +2978,8 @@ void rndlabeler::reset_original_types_global()
 	}
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "RndLabelingResetOldLabelsGlobal", APT_UTL, tic, toc);
+	memsnapshot mm = memsnapshot();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "RndLabelingResetOldLabelsGlobal", APT_UTL, APT_IS_SEQ, mm, tic, toc);
 	cout << "Resetting to original iontypes took " << (toc-tic) << " seconds" << endl;
 }
 
@@ -2535,6 +3014,8 @@ horderdist::~horderdist()
 }
 
 
+
+
 void horderdist::initialize_descrstat_tasks()
 {
 	double tic = MPI_Wtime();
@@ -2542,243 +3023,12 @@ void horderdist::initialize_descrstat_tasks()
 	parse_tasks( Settings::DescrStatTasksCode, spatstat_tasks, owner->owner->mypse );
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "DescrStatsInitTasks", APT_UTL, tic, toc);
+	memsnapshot mm = memsnapshot();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "DescrStatsInitTasks", APT_UTL, APT_IS_SEQ, mm, tic, toc);
 }
 
 
-/*
-void horderdist::compute_generic_spatstat1()
-{
-	//get all neighbors within Settings::SpatStatRadius
-	//each thread machine off his ions binning in local summary statistics which is afterwards dumped to MASTER thread i critical region
-	//threads may require to probe KDTrees of their bottom and top neighbors --- potentially multiple
-	//(for very flat z slabs---many threads---) can do so in parallel because KDTrees are queried only in local function call but not written to
-	double tic = MPI_Wtime();
 
-	cout << "Threadparallel general higher order spatial distribution function..." << endl;
-	vector<histogram> globalres; //multi-layer results for the individual tasks
-	for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk )
-		globalres.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
-
-	#pragma omp parallel
-	{
-		double mytic, mytoc;
-		mytic = omp_get_wtime();
-		int jnt = omp_get_num_threads();
-		int jmt = omp_get_thread_num();
-		unsigned int mt = static_cast<unsigned int>(jmt);
-
-		//all distances squared for efficiency unless nbor objects
-		//basic operation is as follows take each ion, if it is sufficiently distant from tip take into consideration
-		decompositor* partitioning = owner->sp;
-		threadmemory* mydata = partitioning->db.at(mt);
-		vector<p3dm1> const & theseions = mydata->ionpp3_kdtree;
-		vector<apt_xyz> & thesedistances = mydata->ion2surf_kdtree;
-		size_t ni = theseions.size();
-		apt_xyz R = Settings::SpatStatRadiusMax;
-		apt_xyz RSQR = SQR(R);
-		kd_tree* kauri = mydata->threadtree;
-
-		apt_real mydata_zmi = mydata->get_zmi();
-		apt_real mydata_zmx = mydata->get_zmx();
-
-		//set up thread-local task-local histograms collecting to improve parallel efficiency and avoid critical regions, these results are fused later into globalres
-		vector<histogram> myres;
-		for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk )
-			myres.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
-
-		size_t myworkload = 0;
-		size_t mylost = 0;
-
-		for(size_t i = 0; i < ni; ++i) {
-			p3dm1 me = theseions[i];
-
-			//pre-screening, as we use one global function to extract this is inefficient when probing only tasks in which
-			//alloying elements are to be studied, in this case it is much more efficient to screen first when the target ion is at
-			//of type in at least one specific task
-			bool considerme = false;
-			for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
-				if ( me.m == spatstat_tasks.at(tsk).target.second ) {
-					considerme = true;
-					break;
-				}
-			}
-
-			if ( thesedistances.at(i) >= RSQR && considerme == true ) { //ion should be considered deep enough inside tip volume
-				vector<nbor> neighbors;
-				neighbors.clear();
-
-				if ( (me.z - R) > mydata_zmi && (me.z + R) < mydata_zmx ) { //we have to probe only my local tree, most likely case, moderate overhead
-					kauri->range_rball_noclear_nosort( i, theseions, RSQR, neighbors );
-				}
-				else { //we have to probe my local tree and potentially trees of neighboring threads
-					kauri->range_rball_noclear_nosort( i, theseions, RSQR, neighbors );
-
-					//probe potentially top neighbors
-					if ( jmt < (jnt-1) ) { //when i am not the topthread already, in which case I would have checked my ions already, i do climb up
-						for( int nb = (jmt+1); nb < jnt; nb++) { //will eventually climb up to the topmost threadregion, also in practice this will never happen
-
-							threadmemory* nbordata = partitioning->db.at(nb);
-							vector<p3dm1> const & nborthreadions = nbordata->ionpp3_kdtree;
-							kd_tree* nborkauri = nbordata->threadtree;
-
-							nborkauri->range_rball_noclear_nosort_external( me, nborthreadions, RSQR, neighbors );
-						}
-					}
-
-					//probe potentially bottom neighbors
-					if ( jmt > MASTER ) { //when i am not the bottomthread already, also in which case i would have checked my ions already, i do climb down
-						for( int nb = (jmt-1); nb > -1; nb-- ) {
-							threadmemory* nbordata = partitioning->db.at(nb);
-							vector<p3dm1> const & nborthreadions = nbordata->ionpp3_kdtree;
-							kd_tree* nborkauri = nbordata->threadtree;
-
-							nborkauri->range_rball_noclear_nosort_external( me, nborthreadions, RSQR, neighbors );
-						}
-					}
-				}
-
-				//now that we know all neighbors do something useful with it, sort is not required
-				myworkload += neighbors.size();
-
-				if ( Settings::SpatialDistributionTask == E_RIPLEYK || Settings::SpatialDistributionTask == E_RDF ) {
-					for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
-						if ( me.m == spatstat_tasks.at(tsk).target.second ) {
-							//consider me central ion only if of type required by that specific task tsk
-							for( size_t nbb = 0; nbb < neighbors.size(); ++nbb) {
-								for ( auto jt = spatstat_tasks.at(tsk).envcandidates.begin();
-										jt != spatstat_tasks.at(tsk).envcandidates.end(); jt++ ) {
-									if ( neighbors.at(nbb).m != jt->second ) { //type of the only one and candidate is different
-										continue;
-									}
-									else {
-										//myres.at(tsk).add_nodump( neighbors.at(nbb).d );
-										myres.at(tsk).add( neighbors.at(nbb).d );
-										break;
-									}
-								} //done checking all keywords for tsk
-							} //done checking all neighboring ions of me for that specific task
-						}
-					} //reutilize the extracted spatial environment of me again to get histogram of other tasks
-				}
-				else if ( Settings::SpatialDistributionTask == E_NEAREST_NEIGHBOR ) {
-					for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
-						if ( me.m == spatstat_tasks.at(tsk).target.second ) {
-							apt_real closest = F32MX;
-							size_t nborid = numeric_limits<size_t>::max();
-
-							//consider me central ion only if of type required by that specific task tsk
-							for( size_t nbb = 0; nbb < neighbors.size(); ++nbb) {
-								for ( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); jt++ ) {
-									if ( neighbors.at(nbb).m != jt->second ) { //type of the only one and candidate is different
-										continue;
-									}
-									else {
-										if ( neighbors.at(nbb).d > closest ) { //most likely most ions in Settings::SpatStatRadiusMax
-											continue;
-										} else {
-											closest = neighbors.at(nbb).d;
-											nborid = nbb;
-										}
-									}
-								} //done checking all keywords for tsk
-							} //done checking all neighboring ions of me for that specific task
-
-							if ( nborid != numeric_limits<size_t>::max() ) { //myres.at(tsk).add_nodump( neighbors.at(nbb).d );
-								myres.at(tsk).add( closest );
-							}
-							else {
-								mylost++;
-							}
-						}
-					} //reutilize the extracted spatial environment of me again to get also histogram of other tasks
-				}
-				else if ( Settings::SpatialDistributionTask == E_KNN ) {
-					//if at least k elements exist at all do n_th element partial sorting for distances
-					for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
-						if ( me.m == spatstat_tasks.at(tsk).target.second ) {
-							//are there at least neighbors first of all regardless of type
-							//to be able to name at all a k-th order neighbor?
-							//1NN --> order = 0 if size() == 1 ie 1 > 0 we can feed
-							//2NN --> order = 1 if size() == 2 ie 2 > 1 we can feed
-							if ( neighbors.size() > Settings::SpatStatKNNOrder ) { //MK::even getting the zeroth element requires neighbors to contain at least one element!
-								//filter target envcandidates before sorting
-								vector<nbor> tmp;
-								for( size_t nbb = 0; nbb < neighbors.size(); ++nbb) {
-									for ( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); jt++ ) {
-										if ( neighbors.at(nbb).m != jt->second ) { //type of the only one and desired candidate is different
-											continue;
-										}
-										else { tmp.push_back( neighbors.at(nbb) ); }
-									} //done checking all keywords for tsk
-								}
-								//having now our envcandidates we make a partial sort to get the n_th element
-								//still enough envcandidates to name a KNNOrder?
-								if ( tmp.size() > Settings::SpatStatKNNOrder ) { //okay there is no way around O(n) at least partial sorting the envcandidates
-
-									nth_element( tmp.begin(), tmp.begin() + Settings::SpatStatKNNOrder,
-											tmp.end(), SortNeighborsForAscDistance );
-
-									nbor luckyone = tmp.at(Settings::SpatStatKNNOrder);
-									myres.at(tsk).add( luckyone.d );
-								}
-								else { mylost++; } //done not enough of specific type at all to give k-th
-							}
-							else { mylost++; } //done not enough in search sphere of any type at all to give k-th
-						} //reutilize the extracted spatial environment of me again to get also histogram of other tasks
-						//else return nothing
-					}
-				}
-				else { //all other specific spatial statistics tasks
-					continue;
-				}
-//cout << i << "\t\t" << neighbors.size() << endl;
-			} //done checking a single ion
-//cout << jmt << "/" << i << endl;
-		} //next ion
-
-		//done checking all my ions
-
-		mytoc = omp_get_wtime();
-
-		#pragma omp critical
-		{
-			//we a accumulating on the master thread
-			for( size_t tsk = 0; tsk < myres.size(); ++tsk) {
-				globalres.at(tsk).cnts_lowest += myres.at(tsk).cnts_lowest;
-				for( size_t b = 0; b < myres.at(tsk).bincount(); ++b) {
-					globalres.at(tsk).cnts.at(b) += myres.at(tsk).cnts.at(b);
-				}
-				globalres.at(tsk).cnts_highest += myres.at(tsk).cnts_highest;
-			}
-
-			cout << "Thread " << omp_get_thread_num() << " finished general spatstat " << myworkload << "/" << mylost << " took " << (mytoc-mytic) << " seconds" << endl;
-		}
-
-	} //end of parallel region
-
-	//report results
-	for(size_t tsk = 0; tsk < globalres.size(); ++tsk) {
-		string what = "";
-		if ( Settings::SpatialDistributionTask == E_RDF )	what = "RDF";
-		else if ( Settings::SpatialDistributionTask == E_NEAREST_NEIGHBOR ) what = "NN";
-		else if ( Settings::SpatialDistributionTask == E_RIPLEYK ) what = "RIPK";
-		else if ( Settings::SpatialDistributionTask == E_KNN ) what = to_string(Settings::SpatStatKNNOrder) + "NN";
-		else break;
-
-		string whichtarget = spatstat_tasks.at(tsk).target.first;
-		string whichcand = "";
-		for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); jt++) {
-			whichcand += jt->first;
-		}
-		report_apriori_descrstat1( what, whichtarget, whichcand, globalres.at(tsk) );
-	}
-
-	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "DescrStatsThreadparallelCompute", APT_PPP, tic, toc);
-	cout << "Computing general spatial statistics completed took " << (toc-tic) << " seconds" << endl;
-}
-*/
 
 inline size_t str2sizet( const string str )
 {
@@ -2801,6 +3051,7 @@ inline bool SortSizetDescOrder( const size_t & a1, const size_t &a2)
 	return a1 > a2;
 }
 
+
 void horderdist::compute_generic_spatstat2()
 {
 	//thread team machines off successively the regions, within each regions all members of the thread team share the load
@@ -2808,7 +3059,12 @@ void horderdist::compute_generic_spatstat2()
 	//threads may require to probe KDTrees of their bottom and top neighbors --- potentially multiple
 	//(for very flat z slabs---many threads---) can do so in parallel because KDTrees are queried only in local function call but not written to
 
-	if ( Settings::SpatStatDoRDF == false && Settings::SpatStatDo1NN == false && Settings::SpatStatDoRIPK == false && Settings::SpatStatDoKNN == false && Settings::SpatStatDoMKNN == false ) {
+	if ( 	Settings::SpatStatDoRDF == false &&
+			Settings::SpatStatDo1NN == false &&
+			Settings::SpatStatDoRIPK == false &&
+			Settings::SpatStatDoMKNN == false &&
+			Settings::SpatStatDoNPCorr == false &&
+			Settings::SpatStatDoCountNbors == false ) {
 		complaining( "No spatial statistics task to do" );
 		return;
 	}
@@ -2816,10 +3072,20 @@ void horderdist::compute_generic_spatstat2()
 	double tic = MPI_Wtime();
 	cout << "Threadparallel general higher order spatial distribution function..." << endl;
 
+	//avoid that in case of 2-point statistics containers get too large
+	if ( Settings::SpatStatDoNPCorr == true ) {
+		npc3d test = npc3d(Settings::SpatStatRadiusMax, Settings::SpatStatRadiusIncr, 0.f, false);
+		if ( test.get_support().nxyz > CUBE(501) ) {
+			complaining( "Computation of 2-point statistics would require too large buffers, skipping!" );
+			return;
+		}
+	}
+
 	vector<histogram> g_res_rdf; //##MK::all threads know Settings so the implicit order of the histograms in globalres is well defined
 	vector<histogram> g_res_1nn;
 	vector<histogram> g_res_rpk;
-	vector<histogram> g_res_knn;
+	vector<npc3d> g_res_npcorr;
+	vector<discrhistogram> g_res_cntnb;
 
 	vector<size_t> DescrStatMKNNCandidates;
 	//vector<vector<histogram>> g_res_mknn;
@@ -2833,9 +3099,13 @@ void horderdist::compute_generic_spatstat2()
 	if ( Settings::SpatStatDoRIPK == true )
 		for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk )
 			g_res_rpk.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
-	if ( Settings::SpatStatDoKNN == true )
+	if ( Settings::SpatStatDoNPCorr == true )
 		for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk )
-			g_res_knn.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
+			g_res_npcorr.push_back( npc3d(Settings::SpatStatRadiusMax, Settings::SpatStatRadiusIncr, 0.f, true) ); //bin width in nanometer motivated by finite spatial resolution
+	if ( Settings::SpatStatDoCountNbors == true )
+		for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk )
+			g_res_cntnb.push_back( discrhistogram() );
+
 	if ( Settings::SpatStatDoMKNN == true ) {
 		//parse off candidates from thiscode
 		if ( Settings::DescrStatMKNNCode.empty() == false && Settings::DescrStatMKNNCode.find('-') == string::npos ) { //if not empty and containing only nonzero numbers
@@ -2885,7 +3155,8 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 		vector<histogram> m_res_rdf;
 		vector<histogram> m_res_1nn;
 		vector<histogram> m_res_rpk;
-		vector<histogram> m_res_knn;
+		vector<npc3d> m_res_npcorr; //MK::BE CAREFUL underlying container for the 3d can be very large, so make sure to set always ulimit -s unlimited !
+		vector<discrhistogram> m_res_cntnb;
 		vector<size_t> m_mknn_cand;
 		//vector<vector<histogram>> m_res_mknn; //a vector for the tasks, for each task a vector of histograms for the individual kth order values
 		vector<histogram> m_res_mknn;
@@ -2898,14 +3169,16 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 		if ( Settings::SpatStatDoRIPK == true )
 			for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk )
 				m_res_rpk.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
-		if ( Settings::SpatStatDoKNN == true )
+		if ( Settings::SpatStatDoNPCorr == true )
 			for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk )
-				m_res_knn.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
+				m_res_npcorr.push_back( npc3d(Settings::SpatStatRadiusMax, Settings::SpatStatRadiusIncr, 0.f, true) );
+		if ( Settings::SpatStatDoCountNbors == true )
+				for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk )
+					m_res_cntnb.push_back( discrhistogram() );
 		if ( Settings::SpatStatDoMKNN == true ) {
 			//make threadlocal copy of, ##MK::potentially threadlocal copies of task list might also be beneficial to increase locality
-			for( size_t i = 0; i < DescrStatMKNNCandidates.size(); ++i) {
+			for( size_t i = 0; i < DescrStatMKNNCandidates.size(); ++i)
 				m_mknn_cand.push_back( DescrStatMKNNCandidates.at(i) );
-			}
 
 			//#pragma omp critical
 			//{
@@ -2947,6 +3220,14 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 			size_t MyIonsCurrRegionConsider = 0; //deep inside the tip
 			size_t MyIonsCurrRegionDiscard = 0; //close to the tip
 
+			bool NonNPointCorrelationAnalysesDesired = false;
+			if ( 	Settings::SpatStatDoRDF == true ||
+					Settings::SpatStatDo1NN == true ||
+					Settings::SpatStatDoRIPK == true ||
+					Settings::SpatStatDoMKNN == true ||
+					Settings::SpatStatDoCountNbors == true )
+				NonNPointCorrelationAnalysesDesired = true;
+
 			#pragma omp for schedule(dynamic,1) nowait
 			for( size_t i = 0; i < theseions.size(); ++i ) { //all members of thread team grap an ion from the current region process it and continue
 				p3dm1 me = theseions.at(i);
@@ -2961,48 +3242,141 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 						}
 					} //continue if not in another task
 				}
-
+				/*alternative formulation
+				for(auto tsk = spatstat_tasks.begin(); tsk != spatstat_tasks.end(); ++tsk) {
+					if ( considerme == false ) {
+						for( auto kt = tsk->trgcandidates.begin(); kt != tsk->trgcandidates.end(); ++kt ) {
+							if ( me.m == kt->second ) {
+								considerme = true; break;
+							} //at least appears in one task, so no need to check other tasks
+						}
+					} //continue if not in another task
+				}*/
 				if ( thesedistances.at(i) >= RSQR && considerme == true ) {
 					MyIonsCurrRegionConsider++;
 
 					//probe local environment up to R, get all neighbors, only for 1NN this is inefficient, for RDF and high k kNN it is required
 					//and considering that once computed the neighbors are reutilized for all spatstat tasks and multiple distribution functions this is a superior strategy
-					vector<nbor> neighbors; neighbors.clear();
-					if ( (me.z - R) > currdata_zmi && (me.z + R) < currdata_zmx ) { //we have to probe only in curr_kauri this is the most likely case
-						curr_kauri->range_rball_noclear_nosort( i, theseions, RSQR, neighbors );
-					}
-					else {
-						//we have to probe the curr_kauri and trees of neighboring regions, potentially multiple to the top and bottom
-						curr_kauri->range_rball_noclear_nosort( i, theseions, RSQR, neighbors );
-						//probe top neighbors and climb up, when i am not the topmost thread
-						if ( thr < (jnt-1) ) {
-							for( int nb = (thr+1); nb < jnt; nb++) { //will eventually climb up to the topmost threadregion, also in practice this will never happen
-								threadmemory* nbordata = owner->sp->db.at(nb);
-								vector<p3dm1> const & nborthreadions = nbordata->ionpp3_kdtree;
-								kd_tree* nbor_kauri = nbordata->threadtree;
-								nbor_kauri->range_rball_noclear_nosort_external( me, nborthreadions, RSQR, neighbors );
+
+					//if no directional values are of interest it is sufficient to report distance and nature of the neighbors only
+					vector<nbor> neighbors1dm1; neighbors1dm1.clear();
+					//if directional values are of interest, ie. to compute n-point spatial correlation also the position of the neighbor is required
+					vector<p3dm1> neighbors3dm1; neighbors3dm1.clear();
+
+					if ( Settings::SpatStatDoNPCorr == false ) { //only 1dm1 information required
+						if ( (me.z - R) > currdata_zmi && (me.z + R) < currdata_zmx ) { //we have to probe only in curr_kauri this is the most likely case
+							curr_kauri->range_rball_noclear_nosort( i, theseions, RSQR, neighbors1dm1 );
+						}
+						else {
+							//we have to probe the curr_kauri and trees of neighboring regions, potentially multiple to the top and bottom
+							curr_kauri->range_rball_noclear_nosort( i, theseions, RSQR, neighbors1dm1 );
+							//probe top neighbors and climb up, when i am not the topmost thread
+							if ( thr < (jnt-1) ) {
+								for( int nb = (thr+1); nb < jnt; nb++) { //will eventually climb up to the topmost threadregion, also in practice this will never happen
+									threadmemory* nbordata = owner->sp->db.at(nb);
+									vector<p3dm1> const & nborthreadions = nbordata->ionpp3_kdtree;
+									kd_tree* nbor_kauri = nbordata->threadtree;
+									nbor_kauri->range_rball_noclear_nosort_external( me, nborthreadions, RSQR, neighbors1dm1 );
+									//##MK::add break criterion
+								}
+							}
+							//probe bottom neighbors and climb down, when i am not the bottommost thread already
+							if ( thr > MASTER ) {
+								for( int nb = (thr-1); nb > -1; nb-- ) {
+									threadmemory* nbordata = owner->sp->db.at(nb);
+									vector<p3dm1> const & nborthreadions = nbordata->ionpp3_kdtree;
+									kd_tree* nbor_kauri = nbordata->threadtree;
+									nbor_kauri->range_rball_noclear_nosort_external( me, nborthreadions, RSQR, neighbors1dm1 );
+									//##MK::add break
+								}
 							}
 						}
-						//probe bottom neighbors and climb down, when i am not the bottommost thread already
-						if ( thr > MASTER ) {
-							for( int nb = (thr-1); nb > -1; nb-- ) {
-								threadmemory* nbordata = owner->sp->db.at(nb);
-								vector<p3dm1> const & nborthreadions = nbordata->ionpp3_kdtree;
-								kd_tree* nbor_kauri = nbordata->threadtree;
-								nbor_kauri->range_rball_noclear_nosort_external( me, nborthreadions, RSQR, neighbors );
+					}
+					else { //3dm1 information required
+						//pull this information first by scanning the environment
+						if ( (me.z - R) > currdata_zmi && (me.z + R) < currdata_zmx ) { //we have to probe only in curr_kauri this is the most likely case
+							curr_kauri->range_rball_noclear_nosort_p3dm1( i, theseions, RSQR, neighbors3dm1 );
+						}
+						else {
+							//we have to probe the curr_kauri and trees of neighboring regions, potentially multiple to the top and bottom
+							curr_kauri->range_rball_noclear_nosort_p3dm1( i, theseions, RSQR, neighbors3dm1 );
+							//probe top neighbors and climb up, when i am not the topmost thread
+							if ( thr < (jnt-1) ) {
+								for( int nb = (thr+1); nb < jnt; nb++) { //will eventually climb up to the topmost threadregion, also in practice this will never happen
+									threadmemory* nbordata = owner->sp->db.at(nb);
+									vector<p3dm1> const & nborthreadions = nbordata->ionpp3_kdtree;
+									kd_tree* nbor_kauri = nbordata->threadtree;
+									nbor_kauri->range_rball_noclear_nosort_external_p3dm1( me, nborthreadions, RSQR, neighbors3dm1 );
+								}
 							}
+							//probe bottom neighbors and climb down, when i am not the bottommost thread already
+							if ( thr > MASTER ) {
+								for( int nb = (thr-1); nb > -1; nb-- ) {
+									threadmemory* nbordata = owner->sp->db.at(nb);
+									vector<p3dm1> const & nborthreadions = nbordata->ionpp3_kdtree;
+									kd_tree* nbor_kauri = nbordata->threadtree;
+									nbor_kauri->range_rball_noclear_nosort_external_p3dm1( me, nborthreadions, RSQR, neighbors3dm1 );
+								}
+							}
+						}
+
+						//utilize the environmental information to execute n-point correlation function related characterization
+						for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
+							for( auto kt = spatstat_tasks.at(tsk).trgcandidates.begin(); kt != spatstat_tasks.at(tsk).trgcandidates.end(); ++kt ) {
+								if ( me.m == kt->second ) {
+									//are there at all neighbors
+									if ( neighbors3dm1.size() > Settings::SpatStatKNNOrder ) { //MK::even getting the zeroth element requires neighbors to contain at least one element!
+										//filter target envcandidates before sorting
+										vector<npnbor> tmp;
+										for( size_t nbb = 0; nbb < neighbors3dm1.size(); ++nbb) {
+											for ( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); jt++ ) {
+												if ( neighbors3dm1.at(nbb).m != jt->second ) { continue; }//type of the only one and desired candidate is different
+												else {
+													p3dm1 thisnb = neighbors3dm1.at(nbb);
+													d3d diffv = d3d( thisnb.x - me.x, thisnb.y - me.y, thisnb.z - me.z );
+													apt_xyz dd = sqrt( SQR(diffv.u)+SQR(diffv.v)+SQR(diffv.w) );
+													tmp.push_back( npnbor(diffv, dd) ); //, thisnb.m) );
+												}
+											} //done checking all keywords for tsk
+										}
+										//having now our envcandidates we make a partial sort to get the n_th element
+										//still enough envcandidates to name a KNNOrder?
+										if ( tmp.size() > Settings::SpatStatKNNOrder ) { //okay there is no way around O(n) at least partial sorting the envcandidates
+											nth_element( tmp.begin(), tmp.begin() + Settings::SpatStatKNNOrder, tmp.end(), SortNPNeighborsForAscDistance );
+											npnbor luckyone = tmp.at(Settings::SpatStatKNNOrder);
+											m_res_npcorr.at(tsk).add( luckyone ); //.diffvector, 1.f );
+										}
+									}
+									break;
+								}
+							}
+						}
+
+						//potentially apart from npoint correlation functions additional tasks are desired
+						//in this case though, reutilize information in p3dm1 but flatten for cache efficiency of preceeding analyses
+						//flatten next 3dm1 to 1dm1 if further analysis demanded
+						if ( NonNPointCorrelationAnalysesDesired == true ) {
+							for( size_t ii = 0; ii < neighbors3dm1.size(); ++ii ) {
+								p3dm1 thisone = neighbors3dm1.at(ii);
+								apt_xyz distance = sqrt( SQR(thisone.x - me.x) + SQR(thisone.y - me.y) + SQR(thisone.z - me.z) );
+								neighbors1dm1.push_back( nbor( distance, thisone.m ) );
+							}
+						}
+						else {
+							continue; //##MK::I think here is possibility for continuing with next ion already in case of else
 						}
 					}
 
-					//use the environment for all descriptive statistics tasks and tasks of this ion
+
+					//use the environment for all NonNPointCorrelation-related descriptive statistics tasks and tasks of this ion
 					if ( Settings::SpatStatDoRDF == true ) {
 						for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
 							for( auto kt = spatstat_tasks.at(tsk).trgcandidates.begin(); kt != spatstat_tasks.at(tsk).trgcandidates.end(); ++kt ) {
 								if ( me.m == kt->second ) { //consider me central ion only if of type required by that specific task tsk but only account for once
-									for( size_t nbb = 0; nbb < neighbors.size(); ++nbb) { //scan cache locality efficiently threadlocal neighbor array for envcandidates
+									for( size_t nbb = 0; nbb < neighbors1dm1.size(); ++nbb) { //scan cache locality efficiently threadlocal neighbor array for envcandidates
 										for ( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); jt++ ) {
-											if ( neighbors.at(nbb).m != jt->second ) { continue; }
-											else { m_res_rdf.at(tsk).add( neighbors.at(nbb).d ); break; }
+											if ( neighbors1dm1.at(nbb).m != jt->second ) { continue; }
+											else { m_res_rdf.at(tsk).add( neighbors1dm1.at(nbb).d ); break; }
 										} //done checking all keywords for tsk
 									} //done checking all neighboring ions of me for that specific task
 									break; //we break, because in cases of multiple central ions we must not account for neighbors multiple times!
@@ -3016,12 +3390,12 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 								if ( me.m == kt->second ) { //spatstat_tasks.at(tsk).target.second ) {
 									apt_real closest = F32MX;
 									size_t nborid = SIZETMX;
-									for( size_t nbb = 0; nbb < neighbors.size(); ++nbb) {
+									for( size_t nbb = 0; nbb < neighbors1dm1.size(); ++nbb) {
 										for ( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); jt++ ) {
-											if ( neighbors.at(nbb).m != jt->second ) { continue; }
+											if ( neighbors1dm1.at(nbb).m != jt->second ) { continue; }
 											else {
-												if ( neighbors.at(nbb).d > closest ) { continue; }//most likely most ions in Settings::SpatStatRadiusMax
-												else { closest = neighbors.at(nbb).d; nborid = nbb; }
+												if ( neighbors1dm1.at(nbb).d > closest ) { continue; }//most likely most ions in Settings::SpatStatRadiusMax
+												else { closest = neighbors1dm1.at(nbb).d; nborid = nbb; }
 											}
 										} //done checking all keywords for tsk
 									} //done checking all neighboring ions of me for that specific task
@@ -3040,10 +3414,10 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 						for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
 							for( auto kt = spatstat_tasks.at(tsk).trgcandidates.begin(); kt != spatstat_tasks.at(tsk).trgcandidates.end(); ++kt ) {
 								if ( me.m == kt->second ) { //consider me central ion only if of type required by that specific task tsk
-									for( size_t nbb = 0; nbb < neighbors.size(); ++nbb) { //scan cache locality efficiently threadlocal neighbor array for envcandidates
+									for( size_t nbb = 0; nbb < neighbors1dm1.size(); ++nbb) { //scan cache locality efficiently threadlocal neighbor array for envcandidates
 										for ( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); jt++ ) {
-											if ( neighbors.at(nbb).m != jt->second ) { continue; }
-											else { m_res_rpk.at(tsk).add( neighbors.at(nbb).d ); break; }
+											if ( neighbors1dm1.at(nbb).m != jt->second ) { continue; }
+											else { m_res_rpk.at(tsk).add( neighbors1dm1.at(nbb).d ); break; }
 										} //done checking all keywords for tsk
 									} //done checking all neighboring ions of me for that specific task
 									break;
@@ -3051,33 +3425,19 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 							}
 						} //reutilize the extracted spatial environment of me again to get histogram of other tasks
 					}
-					if ( Settings::SpatStatDoKNN == true ) { //if at least k elements exist at all do n_th element partial sorting for distances
+					if ( Settings::SpatStatDoCountNbors == true ) {
 						for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
 							for( auto kt = spatstat_tasks.at(tsk).trgcandidates.begin(); kt != spatstat_tasks.at(tsk).trgcandidates.end(); ++kt ) {
 								if ( me.m == kt->second ) {
-									//are there at all neighbors
-									//to be able to name at all a k-th order neighbor?
-									//1NN --> order = 0 if size() == 1 ie 1 > 0 we can feed
-									//2NN --> order = 1 if size() == 2 ie 2 > 1 we can feed
-									if ( neighbors.size() > Settings::SpatStatKNNOrder ) { //MK::even getting the zeroth element requires neighbors to contain at least one element!
-										//filter target envcandidates before sorting
-										vector<nbor> tmp;
-										for( size_t nbb = 0; nbb < neighbors.size(); ++nbb) {
-											for ( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); jt++ ) {
-												if ( neighbors.at(nbb).m != jt->second ) { continue; }//type of the only one and desired candidate is different
-												else { tmp.push_back( neighbors.at(nbb) ); }
-											} //done checking all keywords for tsk
-										}
-										//having now our envcandidates we make a partial sort to get the n_th element
-										//still enough envcandidates to name a KNNOrder?
-										if ( tmp.size() > Settings::SpatStatKNNOrder ) { //okay there is no way around O(n) at least partial sorting the envcandidates
-											nth_element( tmp.begin(), tmp.begin() + Settings::SpatStatKNNOrder, tmp.end(), SortNeighborsForAscDistance );
-											nbor luckyone = tmp.at(Settings::SpatStatKNNOrder);
-											m_res_knn.at(tsk).add( luckyone.d );
-										}
-										else
-											m_res_knn.at(tsk).add( R + EPSILON );
+									//how many neighbors of specific nature to an ion of also a certain nature?
+									size_t cnt_of_specific_nature = 0;
+									for( size_t nbb = 0; nbb < neighbors1dm1.size(); ++nbb) {
+										for ( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); jt++ ) {
+											if ( neighbors1dm1.at(nbb).m != jt->second ) { continue; }//type of the only one and desired candidate is different
+											else { ++cnt_of_specific_nature; }
+										} //done checking all keywords for tsk
 									}
+									m_res_cntnb.at(tsk).add( cnt_of_specific_nature, 1.f );
 									break;
 								}
 							}
@@ -3089,10 +3449,10 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 								if ( me.m == kt->second ) {
 									//filter target envcandidates before sorting
 									vector<nbor> tmp;
-									for( size_t nbb = 0; nbb < neighbors.size(); ++nbb) {
+									for( size_t nbb = 0; nbb < neighbors1dm1.size(); ++nbb) {
 										for ( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); jt++ ) {
-											if ( neighbors.at(nbb).m != jt->second ) { continue; }//type of the only one and desired candidate is different
-											else { tmp.push_back( neighbors.at(nbb) ); }
+											if ( neighbors1dm1.at(nbb).m != jt->second ) { continue; }//type of the only one and desired candidate is different
+											else { tmp.push_back( neighbors1dm1.at(nbb) ); }
 										} //done checking all keywords for tsk
 									}
 									//attempt to process through all kth order candidates
@@ -3141,7 +3501,7 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 		{
 			double mytictic = omp_get_wtime();
 			if ( Settings::SpatStatDoRDF == true ) {
-				for( size_t tsk = 0; tsk < m_res_rdf.size(); ++tsk) {
+				for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) { //##MK::m_res_rdf.size(); ++tsk) {
 					g_res_rdf.at(tsk).cnts_lowest += m_res_rdf.at(tsk).cnts_lowest;
 					for( size_t b = 0; b < m_res_rdf.at(tsk).bincount(); ++b)
 						g_res_rdf.at(tsk).cnts.at(b) += m_res_rdf.at(tsk).cnts.at(b);
@@ -3149,7 +3509,7 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 				}
 			}
 			if ( Settings::SpatStatDo1NN == true ) {
-				for( size_t tsk = 0; tsk < m_res_1nn.size(); ++tsk) {
+				for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) { //##MK::m_res_1nn.size(); ++tsk) {
 					g_res_1nn.at(tsk).cnts_lowest += m_res_1nn.at(tsk).cnts_lowest;
 					for( size_t b = 0; b < m_res_1nn.at(tsk).bincount(); ++b)
 						g_res_1nn.at(tsk).cnts.at(b) += m_res_1nn.at(tsk).cnts.at(b);
@@ -3157,19 +3517,27 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 				}
 			}
 			if ( Settings::SpatStatDoRIPK == true ) {
-				for( size_t tsk = 0; tsk < m_res_rpk.size(); ++tsk) {
+				for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) { //##MK::m_res_rpk.size(); ++tsk) {
 					g_res_rpk.at(tsk).cnts_lowest += m_res_rpk.at(tsk).cnts_lowest;
 					for( size_t b = 0; b < m_res_rpk.at(tsk).bincount(); ++b)
 						g_res_rpk.at(tsk).cnts.at(b) += m_res_rpk.at(tsk).cnts.at(b);
 					g_res_rpk.at(tsk).cnts_highest += m_res_rpk.at(tsk).cnts_highest;
 				}
 			}
-			if ( Settings::SpatStatDoKNN == true ) {
-				for( size_t tsk = 0; tsk < m_res_knn.size(); ++tsk) {
-					g_res_knn.at(tsk).cnts_lowest += m_res_knn.at(tsk).cnts_lowest;
-					for( size_t b = 0; b < m_res_knn.at(tsk).bincount(); ++b)
-						g_res_knn.at(tsk).cnts.at(b) += m_res_knn.at(tsk).cnts.at(b);
-					g_res_knn.at(tsk).cnts_highest += m_res_knn.at(tsk).cnts_highest;
+			if ( Settings::SpatStatDoNPCorr == true ) {
+				for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) { //##MK::m_res_npcorr.size(); ++tsk) {
+//apt_real dummy = 0.f;
+					for( size_t vxl = 0; vxl < m_res_npcorr.at(tsk).cnts.size(); ++vxl) {
+//dummy = dummy + m_res_npcorr.at(tsk).cnts.at(vxl);
+//cout << dummy << endl;
+						g_res_npcorr.at(tsk).cnts[vxl] = g_res_npcorr.at(tsk).cnts[vxl] + m_res_npcorr.at(tsk).cnts[vxl];
+					}
+				}
+			}
+			if ( Settings::SpatStatDoCountNbors == true ) {
+				for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) { //##MK::m_res_cntnb.size(); ++tsk) {
+					for( size_t b = 0; b < m_res_cntnb.at(tsk).cnts.size(); ++b)
+						g_res_cntnb.at(tsk).add( b, m_res_cntnb.at(tsk).cnts.at(b) );
 				}
 			}
 			if ( Settings::SpatStatDoMKNN == true ) {
@@ -3191,12 +3559,13 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 			}
 			double mytoctoc = omp_get_wtime();
 			cout << "Thread " << mt << " finished general spatstat results reduction took " << (mytoctoc-mytictic) << " seconds" << endl;
-		}
+		} //end of critical region
 	}
 	//explicit barrier end of parallel region
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "DescrStatsThreadparallelCompute", APT_PPP, tic, toc);
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "DescrStatsThreadparallelCompute", APT_PPP, APT_IS_PAR, mm, tic, toc);
 	cout << "Computing general spatial statistics completed took " << (toc-tic) << " seconds" << endl;
 
 	tic = MPI_Wtime();
@@ -3212,7 +3581,7 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 			string whichcand = "";
 			for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); ++jt)
 				whichcand += jt->first;
-			report_apriori_descrstat2( 1, what, whichtarg, whichcand, g_res_rdf.at(tsk) ); //##MK::more elegant cast from enum to long
+			report_apriori_descrstat2( E_RDF, what, whichtarg, whichcand, g_res_rdf.at(tsk) ); //##MK::more elegant cast from enum to long
 		}
 	}
 	if ( Settings::SpatStatDo1NN == true ) {
@@ -3224,7 +3593,7 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 			string whichcand = "";
 			for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); ++jt)
 				whichcand += jt->first;
-			report_apriori_descrstat2( 2, what, whichtarg, whichcand, g_res_1nn.at(tsk) ); //##MK
+			report_apriori_descrstat2( E_NEAREST_NEIGHBOR, what, whichtarg, whichcand, g_res_1nn.at(tsk) ); //##MK
 		}
 	}
 	if ( Settings::SpatStatDoRIPK == true ) {
@@ -3236,19 +3605,7 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 			string whichcand = "";
 			for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); ++jt)
 				whichcand += jt->first;
-			report_apriori_descrstat2( 3, what, whichtarg, whichcand, g_res_rpk.at(tsk) ); //##MK
-		}
-	}
-	if ( Settings::SpatStatDoKNN == true ) {
-		for(size_t tsk = 0; tsk < g_res_knn.size(); ++tsk) {
-			string what = "kNN";
-			string whichtarg = ""; //spatstat_tasks.at(tsk).target.first;
-			for( auto jt = spatstat_tasks.at(tsk).trgcandidates.begin(); jt != spatstat_tasks.at(tsk).trgcandidates.end(); ++jt)
-				whichtarg += jt->first;
-			string whichcand = "";
-			for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); ++jt)
-				whichcand += jt->first;
-			report_apriori_descrstat2( 4, what, whichtarg, whichcand, g_res_knn.at(tsk) ); //##MK
+			report_apriori_descrstat2( E_RIPLEYK, what, whichtarg, whichcand, g_res_rpk.at(tsk) ); //##MK
 		}
 	}
 	if ( Settings::SpatStatDoMKNN == true ) {
@@ -3264,101 +3621,678 @@ for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end
 
 				size_t thishist = tsk*DescrStatMKNNCandidates.size()+kth;
 
-				report_apriori_descrstat2( 5, what, whichtarg, whichcand, g_res_mknn.at(thishist) ); //g_res_mknn.at(tsk).at(kth) );
+				report_apriori_descrstat2( E_MKNN, what, whichtarg, whichcand, g_res_mknn.at(thishist) ); //g_res_mknn.at(tsk).at(kth) );
 			}
+		}
+	}
+	if ( Settings::SpatStatDoCountNbors == true ) {
+		for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
+			string whichtarg = "";
+			for( auto jt = spatstat_tasks.at(tsk).trgcandidates.begin(); jt != spatstat_tasks.at(tsk).trgcandidates.end(); ++jt)
+				whichtarg += jt->first;
+			string whichcand = "";
+			for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); ++jt)
+				whichcand += jt->first;
+			report_apriori_descrstat3( whichtarg, whichcand, g_res_cntnb.at(tsk) );
+		}
+	}
+
+	if ( Settings::SpatStatDoNPCorr == true ) {
+		//generate 3D grid of bin center positions only once
+		bool BinningIsForAllTasksTheSame = true;
+		if ( g_res_npcorr.size() > 0 ) {
+			size_t NumberOfBinsForAllTasks = g_res_npcorr.back().get_support().nxyz;
+
+			for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk ) {
+				if ( g_res_npcorr.at(tsk).get_support().nxyz == NumberOfBinsForAllTasks)
+					continue;
+				else {
+					BinningIsForAllTasksTheSame = false;
+					break;
+				}
+			}
+		}
+
+		if ( BinningIsForAllTasksTheSame == true ) {
+			//get bincenter only once
+			report_npc3d_bincenters_hdf5( g_res_npcorr.back() );
+
+			//but histogram values for every task
+			for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
+				string whichtarg = "";
+				for( auto jt = spatstat_tasks.at(tsk).trgcandidates.begin(); jt != spatstat_tasks.at(tsk).trgcandidates.end(); ++jt)
+					whichtarg += jt->first;
+				string whichcand = "";
+				for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); ++jt)
+					whichcand += jt->first;
+
+				//report_apriori_descrstat4(  whichtarg, whichcand, g_res_npcorr.at(tsk) );
+				report_npc3d_histvalues_hdf5( whichtarg, whichcand, g_res_npcorr.at(tsk) );
+			}
+		}
+		else {
+			//##MK::remains to be implemented
 		}
 	}
 
 	toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "ReportingDescrStatsResults", APT_IO, tic, toc);
+	mm = memsnapshot();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "ReportingDescrStatsResults", APT_IO, APT_IS_SEQ, mm, tic, toc);
 	cout << "Reporting general spatial statistics completed took " << (toc-tic) << " seconds" << endl;
 }
 
 
-
-
-void horderdist::report_apriori_descrstat1( const string whichmetric,
-		const string whichtarget, const string againstwhich, histogram & hist )
+void horderdist::compute_generic_spatstat3()
 {
-//report geometry and spatial partitioning of the KDTree
-	//are we randomized or not?
-	string fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + "." + whichmetric + "." + whichtarget + "." + againstwhich;
-	if ( owner->rndmizer->is_shuffled() == true && owner->rndmizer->is_applied() == true )
-		fn += ".Rndmized.csv";
-	else
-		fn += ".Original.csv";
+	//thread team machines off successively the regions, within each regions all members of the thread team share the load
+	//each thread machine off his ions binning in local summary statistics which is afterwards dumped to MASTER thread i critical region
+	//threads may require to probe KDTrees of their bottom and top neighbors --- potentially multiple
+	//(for very flat z slabs---many threads---) can do so in parallel because KDTrees are queried only in local function call but not written to
 
-	ofstream sslog;
-	sslog.open( fn.c_str() );
-	if ( sslog.is_open() == false ) {
-		string mess = "Unable to open " + fn;
-		stopping(mess);
+	if ( 	Settings::SpatStatDoRDF == false &&
+			Settings::SpatStatDo1NN == false &&
+			Settings::SpatStatDoRIPK == false &&
+			Settings::SpatStatDoMKNN == false &&
+			Settings::SpatStatDoNPCorr == false &&
+			Settings::SpatStatDoCountNbors == false ) {
+		complaining( "No spatial statistics task to do" );
 		return;
 	}
 
-	sslog.precision(18);
-	apt_real bend = hist.start() + hist.width();
+	double tic = MPI_Wtime();
+	cout << "Threadparallel general higher order spatial distribution function..." << endl;
 
-	if ( Settings::SpatialDistributionTask != E_RDF ) {	//mode-specific file layout
-		sslog << "BinEnd(r);Counts\n";
-		sslog << "nm;1\n";
-		sslog << "BinEnd(r);Counts\n"; //we report binends and accumulated counts
-
-		//below hist.start() lower tail dump
-		sslog << hist.start() << ";" << hist.cnts_lowest << "\n";
-		for( unsigned int b = 0; b < hist.bincount(); ++b, bend += hist.width() ) {
-			sslog << bend << ";" << hist.report(b) << "\n";
+	//avoid that in case of 2-point statistics containers get too large
+	if ( Settings::SpatStatDoNPCorr == true ) {
+		npc3d test = npc3d(Settings::SpatStatRadiusMax, Settings::SpatStatRadiusIncr, 0.f, false);
+		if ( test.get_support().nxyz > CUBE(MAXIMUM_NPC3D_BIN_RESOLUTION) ) {
+			complaining( "Computation of 2-point statistics would require too large buffers, skipping!" );
+			return;
 		}
-		//above hist.end() upper tail dump
-		sslog << "" << ";" << hist.cnts_highest << "\n";
 	}
-	else { //== E_RDF requires additional post-processing
-		sslog << "NumberOfIonsInside" << ";" << owner->binner->metadata.nions_inside << "\n";
-		sslog << "VolumeInside" << ";" << owner->binner->metadata.volume_inside << " (nm^3)\n";
 
-		if ( owner->binner->metadata.volume_inside > EPSILON ) { //now division is safnm^3...
+	vector<histogram> g_res_rdf; //##MK::all threads know Settings so the implicit order of the histograms in globalres is well defined
+	vector<histogram> g_res_1nn;
+	vector<histogram> g_res_rpk;
+	vector<npc3d> g_res_npcorr;
+	vector<discrhistogram> g_res_cntnb;
 
-			apt_real globaldensity = static_cast<apt_real>(owner->binner->metadata.nions_inside);
-			globaldensity /= static_cast<apt_real>(owner->binner->metadata.volume_inside);
-			sslog << "InsideAtomicDensityEst" << ";" << globaldensity << "\n";
+	vector<size_t> DescrStatMKNNCandidates;
+	vector<histogram> g_res_mknn;
+	size_t ntsk = spatstat_tasks.size();
+	if ( Settings::SpatStatDoRDF == true )
+		for( size_t tsk = 0; tsk < ntsk; ++tsk )
+			g_res_rdf.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
+	if ( Settings::SpatStatDo1NN == true )
+		for( size_t tsk = 0; tsk < ntsk; ++tsk )
+			g_res_1nn.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
+	if ( Settings::SpatStatDoRIPK == true )
+		for( size_t tsk = 0; tsk < ntsk; ++tsk )
+			g_res_rpk.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
+	if ( Settings::SpatStatDoNPCorr == true )
+		for( size_t tsk = 0; tsk < ntsk; ++tsk )
+			g_res_npcorr.push_back( npc3d(Settings::SpatStatRadiusMax, Settings::SpatStatRadiusIncr, 0.f, true) ); //bin width in nanometer motivated by finite spatial resolution
+	if ( Settings::SpatStatDoCountNbors == true )
+		for( size_t tsk = 0; tsk < ntsk; ++tsk )
+			g_res_cntnb.push_back( discrhistogram() );
 
-			apt_real norm = (1.f / globaldensity) * (1.f / ((4.f/3.f)*PI));
-			sslog << "NormalizationFactor" << ";" << norm << "\n";
-
-			//following the definitions on page 281ff of B. Gault, M. P. Moody, J. M. Cairney and S. P. Ringer
-			//Atom Probe Microscopy, dx.doi.org/10.1007/978-1-4614-3436-8
-			//$RDF(r) = \frac{1}{\bar{\rho}} \frac{n_{RDF}(r)}{\frac{4}{3}\pi(r+0.5\Delta r)^3-(r-0.5\Delta r)^3}$
-			//mind that n_{RDF}(r) in between we find that accumulated counts estimates RipleyK but not the RDF
-			sslog << "r;AccumulatedCount;nRDF(r);ShellVolume;RDF(r)\n";
-			sslog << "nm;1;1;nm^3;1\n";
-			sslog << "r;AccumulatedCount;nRDF(r);ShellVolume;RDF(r)\n";
-
-			//everything below hist.start() is not of interest to us just report lower tail dump
-			sslog << hist.start() << ";" << hist.cnts_lowest << ";;;\n";
-
-			//according to A. Baddeley
-
-			apt_real half_dr = 0.5*hist.width();
-
-			for( unsigned int b = 0; b < hist.bincount(); ++b, bend += hist.width() ) {
-				apt_real r =  hist.start() + (0.5 + static_cast<apt_real>(b)) * hist.width();
-				apt_real diff = (b > 0) ? static_cast<apt_real>(hist.report(b)-hist.report(b-1)) : 0.f;
-				apt_real sphvol = CUBE(r + half_dr) - CUBE(r - half_dr);
-				apt_real rdfval = (sphvol > EPSILON) ? norm*diff/sphvol : 0.f;
-
-				sslog << r << ";" << hist.report(b) << ";" << diff << ";" << sphvol << ";" << rdfval << "\n";
+	if ( Settings::SpatStatDoMKNN == true ) {
+		//parse off candidates from thiscode
+		if ( Settings::DescrStatMKNNCode.empty() == false && Settings::DescrStatMKNNCode.find('-') == string::npos ) { //if not empty and containing only nonzero numbers
+			istringstream line( Settings::DescrStatMKNNCode );
+			string datapiece;
+			//find how many semicola if any
+			int nsemicola = std::count( Settings::DescrStatMKNNCode.begin(), Settings::DescrStatMKNNCode.end(), ';' );
+cout << "--->nsemicola=" << nsemicola << endl;
+			for( int i = 0; i <= nsemicola; ++i ) { //interpret numeral kth order values, <= because one value trailing last semicolon
+				getline( line, datapiece, ';');
+				if ( isanumber( datapiece ) == true ) {
+					size_t val = str2sizet( datapiece );
+					if ( val < 1 ) { complaining( "Instructing a kth order value smaller than 1" ); return; }
+					else { val -= 1; }
+					DescrStatMKNNCandidates.push_back( val );
+cout << "--->" << val << "<---" << endl;
+				}
 			}
-			//everything above hist.end() is also not of interest to us just report upper tail dump
-			sslog << "" << ";" << hist.cnts_highest << ";;;\n";
+			//MK::sort in descending order because as such when querying and partially sorting via n_th element first with the highest kth order value
+			//the array is in most cases sorted already on [0,kth order element]  and subsequent successive sorts less and less costly if necessary at all
+			std::sort( DescrStatMKNNCandidates.begin(), DescrStatMKNNCandidates.end(), SortSizetDescOrder );
+cout << "--->After sorting" << endl;
+for(auto it = DescrStatMKNNCandidates.begin(); it != DescrStatMKNNCandidates.end(); ++it) cout << "--->" << *it << "<---" << endl;
+		}
 
+		for( size_t tsk = 0; tsk < ntsk; ++tsk ) {
+			for(size_t kth = 0; kth < DescrStatMKNNCandidates.size(); ++kth)
+				g_res_mknn.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
+		} //in case of kth order candidates one histogram per candidate and task
+	}
+
+	#pragma omp parallel
+	{
+		double mytic, mytoc;
+		int jnt = omp_get_num_threads();
+		int jmt = omp_get_thread_num();
+		unsigned int MaximumNumberOfIontypes = owner->owner->mypse.get_maxtypeid();
+
+		//all distances squared instead of sqrt computation for efficiency unless nbor objects
+		//basic operation is as follows take each ion, if it is sufficiently distant from tip take into consideration
+
+		//set thread-local task-local histograms collecting to improve parallel efficiency
+		vector<histogram> m_res_rdf;
+		vector<histogram> m_res_1nn;
+		vector<histogram> m_res_rpk;
+		vector<npc3d> m_res_npcorr; //MK::BE CAREFUL underlying container for the 3d can be very large, so make sure to set always ulimit -s unlimited !
+		vector<discrhistogram> m_res_cntnb;
+		vector<size_t> m_mknn_cand;
+		vector<histogram> m_res_mknn;
+		if ( Settings::SpatStatDoRDF == true )
+			for( size_t tsk = 0; tsk < ntsk; ++tsk )
+				m_res_rdf.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
+		if ( Settings::SpatStatDo1NN == true )
+			for( size_t tsk = 0; tsk < ntsk; ++tsk )
+				m_res_1nn.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
+		if ( Settings::SpatStatDoRIPK == true )
+			for( size_t tsk = 0; tsk < ntsk; ++tsk )
+				m_res_rpk.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
+		if ( Settings::SpatStatDoNPCorr == true )
+			for( size_t tsk = 0; tsk < ntsk; ++tsk )
+				m_res_npcorr.push_back( npc3d(Settings::SpatStatRadiusMax, Settings::SpatStatRadiusIncr, 0.f, true) );
+		if ( Settings::SpatStatDoCountNbors == true )
+				for( size_t tsk = 0; tsk < ntsk; ++tsk )
+					m_res_cntnb.push_back( discrhistogram() );
+		if ( Settings::SpatStatDoMKNN == true ) {
+			//make threadlocal copy of, ##MK::potentially threadlocal copies of task list might also be beneficial to increase locality
+			for( size_t i = 0; i < DescrStatMKNNCandidates.size(); ++i)
+				m_mknn_cand.push_back( DescrStatMKNNCandidates.at(i) );
+
+			//init threadlocal results arrays per task per kth each
+			for( size_t tsk = 0; tsk < ntsk; ++tsk ) {
+				for ( size_t kth = 0; kth < m_mknn_cand.size(); ++kth )
+					m_res_mknn.push_back( histogram(Settings::SpatStatRadiusMin, Settings::SpatStatRadiusIncr, Settings::SpatStatRadiusMax) );
+			}
+		}
+		//initialization done
+
+		for( int thr = MASTER; thr < jnt; thr++ ) { //thread team is instructed to machine off region by region
+
+			mytic = omp_get_wtime();
+
+			//each member in the team reads details of specific region and initializes threadlocal comparator variables
+			threadmemory* currentregiondata = owner->sp->db.at(thr);
+			vector<p3dm1> const & theseions = currentregiondata->ionpp3_kdtree;
+			vector<apt_xyz> & thesedistances = currentregiondata->ion2surf_kdtree;
+
+			apt_xyz R = Settings::SpatStatRadiusMax;
+			apt_xyz RSQR = SQR(R);
+			size_t KNNOrder = Settings::SpatStatKNNOrder;
+			kd_tree* curr_kauri = currentregiondata->threadtree;
+
+			apt_real currdata_zmi = currentregiondata->get_zmi();
+			apt_real currdata_zmx = currentregiondata->get_zmx();
+
+			size_t MyIonsCurrRegionConsider = 0; //deep inside the tip
+			size_t MyIonsCurrRegionDiscard = 0; //close to the tip
+
+			bool NonNPointCorrelationAnalysesDesired = false;
+			if ( 	Settings::SpatStatDoRDF == true ||
+					Settings::SpatStatDo1NN == true ||
+					Settings::SpatStatDoRIPK == true ||
+					Settings::SpatStatDoMKNN == true ||
+					Settings::SpatStatDoCountNbors == true )
+				NonNPointCorrelationAnalysesDesired = true;
+
+			#pragma omp for schedule(dynamic,1) nowait
+			for( size_t i = 0; i < theseions.size(); ++i ) { //all members of thread team grap an ion from the current region process it and continue
+				p3dm1 me = theseions.at(i);
+				//pre-screening is the ion part of any of the spatstat tasks I want to perform?
+				bool considerme = false;
+				for( auto tskit = spatstat_tasks.begin(); tskit != spatstat_tasks.end(); ++tskit) {
+					if ( considerme == false ) {
+						for( auto kt = tskit->trgcandidates.begin(); kt != tskit->trgcandidates.end(); ++kt ) {
+							if ( me.m == kt->second ) {
+								considerme = true; break;
+							} //at least appears in one task, so no need to check other tasks
+						}
+					} //continue if not in another task
+				}
+
+				if ( thesedistances.at(i) >= RSQR && considerme == true ) {
+					MyIonsCurrRegionConsider++;
+
+					//probe local environment up to R, get all neighbors, only for 1NN this is inefficient, for RDF and high k kNN it is required
+					//and considering that once computed the neighbors are reutilized for all spatstat tasks and multiple distribution functions this is a superior strategy
+
+					//if no directional values are of interest it is sufficient to report distance and nature of the neighbors only
+					vector<nbor> neighbors1dm1; neighbors1dm1.clear();
+					//if directional values are of interest, ie. to compute n-point spatial correlation also the position of the neighbor is required
+					vector<p3dm1> neighbors3dm1; neighbors3dm1.clear();
+
+					if ( Settings::SpatStatDoNPCorr == false ) { //only 1dm1 information required
+						if ( (me.z - R) > currdata_zmi && (me.z + R) < currdata_zmx ) { //we have to probe only in curr_kauri this is the most likely case
+							curr_kauri->range_rball_noclear_nosort( i, theseions, RSQR, neighbors1dm1 );
+						}
+						else {
+							//we have to probe the curr_kauri and trees of neighboring regions, potentially multiple to the top and bottom
+							curr_kauri->range_rball_noclear_nosort( i, theseions, RSQR, neighbors1dm1 );
+							//probe top neighbors and climb up, when i am not the topmost thread
+							if ( thr < (jnt-1) ) {
+								for( int nb = (thr+1); nb < jnt; nb++) { //will eventually climb up to the topmost threadregion, also in practice this will never happen
+									threadmemory* nbordata = owner->sp->db.at(nb);
+									vector<p3dm1> const & nborthreadions = nbordata->ionpp3_kdtree;
+									kd_tree* nbor_kauri = nbordata->threadtree;
+									nbor_kauri->range_rball_noclear_nosort_external( me, nborthreadions, RSQR, neighbors1dm1 );
+									//##MK::add break criterion
+								}
+							}
+							//probe bottom neighbors and climb down, when i am not the bottommost thread already
+							if ( thr > MASTER ) {
+								for( int nb = (thr-1); nb > -1; nb-- ) {
+									threadmemory* nbordata = owner->sp->db.at(nb);
+									vector<p3dm1> const & nborthreadions = nbordata->ionpp3_kdtree;
+									kd_tree* nbor_kauri = nbordata->threadtree;
+									nbor_kauri->range_rball_noclear_nosort_external( me, nborthreadions, RSQR, neighbors1dm1 );
+									//##MK::add break
+								}
+							}
+						}
+					}
+					else { //3dm1 information required
+						//pull this information first by scanning the environment
+						if ( (me.z - R) > currdata_zmi && (me.z + R) < currdata_zmx ) { //we have to probe only in curr_kauri this is the most likely case
+							curr_kauri->range_rball_noclear_nosort_p3dm1( i, theseions, RSQR, neighbors3dm1 );
+						}
+						else {
+							//we have to probe the curr_kauri and trees of neighboring regions, potentially multiple to the top and bottom
+							curr_kauri->range_rball_noclear_nosort_p3dm1( i, theseions, RSQR, neighbors3dm1 );
+							//probe top neighbors and climb up, when i am not the topmost thread
+							if ( thr < (jnt-1) ) {
+								for( int nb = (thr+1); nb < jnt; nb++) { //will eventually climb up to the topmost threadregion, also in practice this will never happen
+									threadmemory* nbordata = owner->sp->db.at(nb);
+									vector<p3dm1> const & nborthreadions = nbordata->ionpp3_kdtree;
+									kd_tree* nbor_kauri = nbordata->threadtree;
+									nbor_kauri->range_rball_noclear_nosort_external_p3dm1( me, nborthreadions, RSQR, neighbors3dm1 );
+								}
+							}
+							//probe bottom neighbors and climb down, when i am not the bottommost thread already
+							if ( thr > MASTER ) {
+								for( int nb = (thr-1); nb > -1; nb-- ) {
+									threadmemory* nbordata = owner->sp->db.at(nb);
+									vector<p3dm1> const & nborthreadions = nbordata->ionpp3_kdtree;
+									kd_tree* nbor_kauri = nbordata->threadtree;
+									nbor_kauri->range_rball_noclear_nosort_external_p3dm1( me, nborthreadions, RSQR, neighbors3dm1 );
+								}
+							}
+						}
+
+						//utilize the environmental information to execute n-point correlation function related characterization
+						for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
+							for( auto kt = spatstat_tasks.at(tsk).trgcandidates.begin(); kt != spatstat_tasks.at(tsk).trgcandidates.end(); ++kt ) {
+								if ( me.m == kt->second ) {
+									//are there at all neighbors
+									if ( neighbors3dm1.size() > KNNOrder ) { //MK::even getting the zeroth element requires neighbors to contain at least one element!
+										//filter target envcandidates before sorting
+										vector<npnbor> tmp;
+										for( size_t nbb = 0; nbb < neighbors3dm1.size(); ++nbb) {
+											for ( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); jt++ ) {
+												if ( neighbors3dm1[nbb].m != jt->second ) { continue; }//type of the only one and desired candidate is different
+												else {
+													p3dm1 thisnb = neighbors3dm1[nbb];
+													d3d diffv = d3d( thisnb.x - me.x, thisnb.y - me.y, thisnb.z - me.z );
+													apt_xyz dd = sqrt( SQR(diffv.u)+SQR(diffv.v)+SQR(diffv.w) );
+													tmp.push_back( npnbor(diffv, dd) ); //, thisnb.m) );
+												}
+											} //done checking all keywords for tsk
+										}
+										//having now our envcandidates we make a partial sort to get the n_th element
+										//still enough envcandidates to name a KNNOrder?
+										if ( tmp.size() > KNNOrder ) { //okay there is no way around O(n) at least partial sorting the envcandidates
+											nth_element( tmp.begin(), tmp.begin() + KNNOrder, tmp.end(), SortNPNeighborsForAscDistance );
+											npnbor luckyone = tmp[KNNOrder];
+											m_res_npcorr.at(tsk).add( luckyone );
+										}
+									}
+									break;
+								}
+							}
+						}
+
+						//potentially apart from npoint correlation functions additional tasks are desired
+						//in this case reuse information in p3dm1 but flatten for cache efficiency of preceeding analyses
+						if ( NonNPointCorrelationAnalysesDesired == true ) {
+							for( size_t ii = 0; ii < neighbors3dm1.size(); ++ii ) {
+								p3dm1 thisone = neighbors3dm1.at(ii);
+								apt_xyz distance = sqrt( SQR(thisone.x - me.x) + SQR(thisone.y - me.y) + SQR(thisone.z - me.z) );
+								neighbors1dm1.push_back( nbor( distance, thisone.m ) );
+							}
+						}
+						else {
+							continue; //##MK::I think here is possibility for continuing with next ion already in case of else
+						}
+					}
+
+					//if (  NonNPointCorrelationAnalysesDesired == true ) {
+						//in case many different analyses are desired it is useful at a 3*O(n) cost to restructure the array
+						vector<io_bounds> reorganizer( MaximumNumberOfIontypes, io_bounds() );
+						for( auto iit = neighbors1dm1.begin(); iit != neighbors1dm1.end(); ++iit ) {
+	//cout << "MaxNumberOfTypes/m\t\t" << MaximumNumberOfIontypes << "\t\t" << iit->m << endl;
+							reorganizer[iit->m].n++;
+						}
+						for( size_t jjt = 0; jjt < reorganizer.size(); ++jjt ) {
+							reorganizer[jjt].s = 0;
+							for( size_t trailjjt = 0; trailjjt < jjt; ++trailjjt ) {
+								reorganizer[jjt].s += reorganizer[trailjjt].n;
+							}
+							reorganizer[jjt].e = reorganizer[jjt].s + reorganizer[jjt].n;
+						}
+						for ( size_t jjt = 0; jjt < reorganizer.size(); ++jjt) {
+							reorganizer[jjt].n = 0; //reset to use as offsetter
+						}
+						vector<apt_xyz> type_ordered_dists( neighbors1dm1.size(), F32MX );
+						for( auto iit = neighbors1dm1.begin(); iit != neighbors1dm1.end(); ++iit ) {
+	//cout << "Length\t\t" << type_ordered_dists.size() << "\t\t" << (reorganizer[iit->m].s + reorganizer[iit->m].n) << endl;
+							type_ordered_dists.at(reorganizer[iit->m].s + reorganizer[iit->m].n) = iit->d;
+							reorganizer[iit->m].n++;
+						}
+						//now type_ordered_dists.size() >> reorganizer.size() size in memory half of neighbors1dm1 so slightly better efficiency no probing of incorrect types for any task!
+
+						//use the environment for all NonNPointCorrelation-related descriptive statistics tasks and tasks of this ion
+						if ( Settings::SpatStatDoRDF == true ) {
+							for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
+								for( auto kt = spatstat_tasks[tsk].trgcandidates.begin(); kt != spatstat_tasks[tsk].trgcandidates.end(); ++kt ) {
+									if ( me.m == kt->second ) { //consider me central ion only if of type required by that specific task tsk but only account for once
+										for ( auto jt = spatstat_tasks[tsk].envcandidates.begin(); jt != spatstat_tasks[tsk].envcandidates.end(); jt++ ) {
+											size_t ival_s = reorganizer[jt->second].s;
+											size_t ival_e = reorganizer[jt->second].e;
+											for( size_t nbb = ival_s; nbb < ival_e; ++nbb) { //scan cache locality efficientlthreadlocal neighbor array for envcandidates
+												m_res_rdf[tsk].add( type_ordered_dists[nbb] );
+											}
+										} //done checking all neighboring ions of me for that specific task
+										break;
+									} //done performing task tsk
+								} //potentially multiple central ion types request the neighbors to be accounted for
+							} //proceed with the next task, reutilize the extracted spatial environment of me again to get histogram of other tasks
+						}
+	//cout << "RDF" << endl;
+						if ( Settings::SpatStatDo1NN == true ) {
+							for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
+								for( auto kt = spatstat_tasks[tsk].trgcandidates.begin(); kt != spatstat_tasks[tsk].trgcandidates.end(); ++kt ) {
+									if ( me.m == kt->second ) { //spatstat_tasks[tsk].target.second ) {
+										apt_real closest = F32MX;
+										size_t nborid = SIZETMX;
+										for ( auto jt = spatstat_tasks[tsk].envcandidates.begin(); jt != spatstat_tasks[tsk].envcandidates.end(); jt++ ) {
+											size_t ival_s = reorganizer[jt->second].s;
+											size_t ival_e = reorganizer[jt->second].e;
+											for( size_t nbb = ival_s; nbb < ival_e; ++nbb) {
+												if ( type_ordered_dists[nbb] > closest ) { continue; }//most likely most ions in Settings::SpatStatRadiusMax
+												else { closest = type_ordered_dists[nbb]; nborid = nbb; }
+											} //done checking all keywords for tsk
+										} //done checking all neighboring ions of me for that specific task
+										if ( nborid != SIZETMX )
+											m_res_1nn[tsk].add( closest ); //if ( closest < 0.021 ) {//	cout << closest << "\t\t" << me.x << ";" << me.y << ";" << me.z << endl; //}
+										else
+											m_res_1nn[tsk].add( R + EPSILON );
+
+										break;
+									}
+								}
+							}
+						}
+	//cout << "1NN" << endl;
+						if ( Settings::SpatStatDoRIPK == true ) {
+							for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
+								for( auto kt = spatstat_tasks[tsk].trgcandidates.begin(); kt != spatstat_tasks[tsk].trgcandidates.end(); ++kt ) {
+									if ( me.m == kt->second ) { //consider me central ion only if of type required by that specific task tsk
+										for ( auto jt = spatstat_tasks[tsk].envcandidates.begin(); jt != spatstat_tasks[tsk].envcandidates.end(); jt++ ) {
+											size_t ival_s = reorganizer[jt->second].s;
+											size_t ival_e = reorganizer[jt->second].e;
+											for( size_t nbb = ival_s; nbb < ival_e; ++nbb) { //scan cache locality efficiently threadlocal neighbor array for envcandidates
+												m_res_rpk[tsk].add( type_ordered_dists[nbb] );
+											} //done checking all keywords for tsk
+										} //done checking all neighboring ions of me for that specific task
+										break;
+									} //done performing task tsk
+								}
+							} //reutilize the extracted spatial environment of me again to get histogram of other tasks
+						}
+						if ( Settings::SpatStatDoCountNbors == true ) {
+							for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
+								for( auto kt = spatstat_tasks[tsk].trgcandidates.begin(); kt != spatstat_tasks[tsk].trgcandidates.end(); ++kt ) {
+									if ( me.m == kt->second ) {
+										for ( auto jt = spatstat_tasks[tsk].envcandidates.begin(); jt != spatstat_tasks[tsk].envcandidates.end(); jt++ ) {
+											size_t cnt_of_specific_nature = reorganizer[jt->second].e - reorganizer[jt->second].s;
+											m_res_cntnb[tsk].add( cnt_of_specific_nature, 1.f );
+										}
+										break;
+									}
+								}
+							}
+						}
+						if ( Settings::SpatStatDoMKNN == true && m_mknn_cand.size() > 0 ) { //if at least k elements exist at all do n_th element partial sorting for distances
+							for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
+								for( auto kt = spatstat_tasks[tsk].trgcandidates.begin(); kt != spatstat_tasks[tsk].trgcandidates.end(); ++kt ) {
+									if ( me.m == kt->second ) {
+										//filter target envcandidates before sorting
+										vector<apt_xyz> tmp;
+										for ( auto jt = spatstat_tasks[tsk].envcandidates.begin(); jt != spatstat_tasks[tsk].envcandidates.end(); jt++ ) {
+											size_t ival_s = reorganizer[jt->second].s;
+											size_t ival_e = reorganizer[jt->second].e;
+											for( size_t nbb = ival_s; nbb < ival_e; ++nbb ) {
+												tmp.push_back( type_ordered_dists[nbb] );
+											} //done checking all keywords for tsk
+										}
+										//attempt to process through all kth order candidates
+										for(size_t kth = 0; kth < m_mknn_cand.size(); ++kth ) {
+											size_t SpatStatCurrKNNOrder = m_mknn_cand[kth];
+											size_t thishist = tsk*m_mknn_cand.size() + kth;
+											if ( tmp.size() > SpatStatCurrKNNOrder ) { //average O(n) time complex partitioning instead of full O(nlogn) sorting
+												nth_element( tmp.begin(), tmp.begin() + SpatStatCurrKNNOrder, tmp.end() ); //ascending order sorting by default
+												m_res_mknn[thishist].add( tmp[SpatStatCurrKNNOrder] );
+											}
+											else {
+												m_res_mknn[thishist].add( R + EPSILON );
+											}
+											//do not break next kth order candidate given that m_mknn_cand is sorted in descending order n_th element sort will be done
+										}
+										//break now because we do not account for the neighbors within a single task tsk multiple times if me.m == kt->second is true several times
+										break;
+									}
+								} //analyze next kth order candidate on current task
+							} //next mknn task
+						}
+					//}
+					//else { //only NPCorr desired go to next ion
+					//	continue;
+					//}
+				} //done with all tasks for this single ion, proceed with the next
+				else {
+					MyIonsCurrRegionDiscard++;
+				}
+			} //me working through the queue of the current region
+
+			mytoc = omp_get_wtime();
+			#pragma omp critical
+			{
+				cout << "Thread " << jmt << " participated in descriptive spatial statistics of region " << thr << " and considered/discarded " << MyIonsCurrRegionConsider << ";" << MyIonsCurrRegionDiscard << " took " << (mytoc-mytic) << " seconds" << endl;
+			}
+
+			#pragma omp barrier
+		} //thread team processes the next region
+
+		//thread team members reduce local results into global
+		#pragma omp critical
+		{
+			double mytictic = omp_get_wtime();
+			if ( Settings::SpatStatDoRDF == true ) {
+				for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) { //##MK::m_res_rdf.size(); ++tsk) {
+					g_res_rdf[tsk].cnts_lowest += m_res_rdf[tsk].cnts_lowest;
+					for( size_t b = 0; b < m_res_rdf[tsk].bincount(); ++b)
+						g_res_rdf[tsk].cnts.at(b) += m_res_rdf[tsk].cnts.at(b);
+					g_res_rdf[tsk].cnts_highest += m_res_rdf[tsk].cnts_highest;
+				}
+			}
+			if ( Settings::SpatStatDo1NN == true ) {
+				for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) { //##MK::m_res_1nn.size(); ++tsk) {
+					g_res_1nn[tsk].cnts_lowest += m_res_1nn[tsk].cnts_lowest;
+					for( size_t b = 0; b < m_res_1nn[tsk].bincount(); ++b)
+						g_res_1nn[tsk].cnts.at(b) += m_res_1nn[tsk].cnts.at(b);
+					g_res_1nn[tsk].cnts_highest += m_res_1nn[tsk].cnts_highest;
+				}
+			}
+			if ( Settings::SpatStatDoRIPK == true ) {
+				for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) { //##MK::m_res_rpk.size(); ++tsk) {
+					g_res_rpk[tsk].cnts_lowest += m_res_rpk[tsk].cnts_lowest;
+					for( size_t b = 0; b < m_res_rpk[tsk].bincount(); ++b)
+						g_res_rpk[tsk].cnts.at(b) += m_res_rpk[tsk].cnts.at(b);
+					g_res_rpk[tsk].cnts_highest += m_res_rpk[tsk].cnts_highest;
+				}
+			}
+			if ( Settings::SpatStatDoNPCorr == true ) {
+				for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
+					size_t nvxl = m_res_npcorr[tsk].cnts.size();
+					for( size_t vxl = 0; vxl < nvxl; ++vxl) {
+						g_res_npcorr[tsk].cnts[vxl] = g_res_npcorr[tsk].cnts[vxl] + m_res_npcorr[tsk].cnts[vxl];
+					}
+				}
+			}
+			if ( Settings::SpatStatDoCountNbors == true ) {
+				for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) { //##MK::m_res_cntnb.size(); ++tsk) {
+					for( size_t b = 0; b < m_res_cntnb[tsk].cnts.size(); ++b)
+						g_res_cntnb[tsk].add( b, m_res_cntnb[tsk].cnts.at(b) );
+				}
+			}
+			if ( Settings::SpatStatDoMKNN == true ) {
+				for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk ) {
+					for( size_t kth = 0; kth < m_mknn_cand.size(); ++kth) {
+						size_t thishist = tsk*m_mknn_cand.size()+kth;
+						g_res_mknn[thishist].cnts_lowest += m_res_mknn[thishist].cnts_lowest;
+						for( size_t b = 0; b < m_res_mknn[thishist].bincount(); ++b)
+							g_res_mknn[thishist].cnts.at(b) += m_res_mknn[thishist].cnts.at(b);
+ 						g_res_mknn[thishist].cnts_highest += m_res_mknn[thishist].cnts_highest;
+					}
+				}
+			}
+			double mytoctoc = omp_get_wtime();
+			cout << "Thread " << jmt << " finished general spatstat results reduction took " << (mytoctoc-mytictic) << " seconds" << endl;
+		} //end of critical region
+	}
+	//explicit barrier end of parallel region
+
+	double toc = MPI_Wtime();
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "DescrStatsThreadparallelCompute", APT_PPP, APT_IS_PAR, mm, tic, toc);
+	cout << "Computing general spatial statistics completed took " << (toc-tic) << " seconds" << endl;
+
+	tic = MPI_Wtime();
+
+	//report results
+	//select which
+	if ( Settings::SpatStatDoRDF == true ) {
+		for(size_t tsk = 0; tsk < g_res_rdf.size(); ++tsk) {
+			string what = "RDF";
+			string whichtarg = ""; //spatstat_tasks.at(tsk).target.first;
+			for( auto jt = spatstat_tasks.at(tsk).trgcandidates.begin(); jt != spatstat_tasks.at(tsk).trgcandidates.end(); ++jt)
+				whichtarg += jt->first;
+			string whichcand = "";
+			for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); ++jt)
+				whichcand += jt->first;
+			report_apriori_descrstat2( E_RDF, what, whichtarg, whichcand, g_res_rdf.at(tsk) ); //##MK::more elegant cast from enum to long
+		}
+	}
+	if ( Settings::SpatStatDo1NN == true ) {
+		for(size_t tsk = 0; tsk < g_res_1nn.size(); ++tsk) {
+			string what = "1NN";
+			string whichtarg = ""; //spatstat_tasks.at(tsk).target.first;
+			for( auto jt = spatstat_tasks.at(tsk).trgcandidates.begin(); jt != spatstat_tasks.at(tsk).trgcandidates.end(); ++jt)
+				whichtarg += jt->first;
+			string whichcand = "";
+			for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); ++jt)
+				whichcand += jt->first;
+			report_apriori_descrstat2( E_NEAREST_NEIGHBOR, what, whichtarg, whichcand, g_res_1nn.at(tsk) ); //##MK
+		}
+	}
+	if ( Settings::SpatStatDoRIPK == true ) {
+		for(size_t tsk = 0; tsk < g_res_rpk.size(); ++tsk) {
+			string what = "RIPK";
+			string whichtarg = ""; //spatstat_tasks.at(tsk).target.first;
+			for( auto jt = spatstat_tasks.at(tsk).trgcandidates.begin(); jt != spatstat_tasks.at(tsk).trgcandidates.end(); ++jt)
+				whichtarg += jt->first;
+			string whichcand = "";
+			for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); ++jt)
+				whichcand += jt->first;
+			report_apriori_descrstat2( E_RIPLEYK, what, whichtarg, whichcand, g_res_rpk.at(tsk) ); //##MK
+		}
+	}
+	if ( Settings::SpatStatDoMKNN == true ) {
+		for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk ) {
+			for(size_t kth = 0; kth < DescrStatMKNNCandidates.size(); ++kth ) {
+				string what = "MKNN" + to_string(DescrStatMKNNCandidates.at(kth)+1); //+1 to change from C style to intuitive neighbor accounting
+				string whichtarg = "";
+				for( auto jt = spatstat_tasks.at(tsk).trgcandidates.begin(); jt != spatstat_tasks.at(tsk).trgcandidates.end(); ++jt)
+					whichtarg += jt->first;
+				string whichcand = "";
+				for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); ++jt)
+					whichcand += jt->first;
+
+				size_t thishist = tsk*DescrStatMKNNCandidates.size()+kth;
+
+				report_apriori_descrstat2( E_MKNN, what, whichtarg, whichcand, g_res_mknn.at(thishist) ); //g_res_mknn.at(tsk).at(kth) );
+			}
+		}
+	}
+	if ( Settings::SpatStatDoCountNbors == true ) {
+		for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
+			string whichtarg = "";
+			for( auto jt = spatstat_tasks.at(tsk).trgcandidates.begin(); jt != spatstat_tasks.at(tsk).trgcandidates.end(); ++jt)
+				whichtarg += jt->first;
+			string whichcand = "";
+			for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); ++jt)
+				whichcand += jt->first;
+			report_apriori_descrstat3( whichtarg, whichcand, g_res_cntnb.at(tsk) );
+		}
+	}
+
+	if ( Settings::SpatStatDoNPCorr == true ) {
+		//generate 3D grid of bin center positions only once
+		bool BinningIsForAllTasksTheSame = true;
+		if ( g_res_npcorr.size() > 0 ) {
+			size_t NumberOfBinsForAllTasks = g_res_npcorr.back().get_support().nxyz;
+
+			for( size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk ) {
+				if ( g_res_npcorr.at(tsk).get_support().nxyz == NumberOfBinsForAllTasks)
+					continue;
+				else {
+					BinningIsForAllTasksTheSame = false;
+					break;
+				}
+			}
+		}
+
+		if ( BinningIsForAllTasksTheSame == true ) {
+			//get bincenter only once
+			report_npc3d_bincenters_hdf5( g_res_npcorr.back() );
+
+			//but histogram values for every task
+			for(size_t tsk = 0; tsk < spatstat_tasks.size(); ++tsk) {
+				string whichtarg = "";
+				for( auto jt = spatstat_tasks.at(tsk).trgcandidates.begin(); jt != spatstat_tasks.at(tsk).trgcandidates.end(); ++jt)
+					whichtarg += jt->first;
+				string whichcand = "";
+				for( auto jt = spatstat_tasks.at(tsk).envcandidates.begin(); jt != spatstat_tasks.at(tsk).envcandidates.end(); ++jt)
+					whichcand += jt->first;
+
+				//report_apriori_descrstat4(  whichtarg, whichcand, g_res_npcorr.at(tsk) );
+				report_npc3d_histvalues_hdf5( whichtarg, whichcand, g_res_npcorr.at(tsk) );
+			}
 		}
 		else {
-			complaining("Insufficient volume detected during binning in order to estimate RDF!");
+			//##MK::remains to be implemented
 		}
 	}
 
-	sslog.flush();
-	sslog.close();
+	toc = MPI_Wtime();
+	mm = memsnapshot();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "ReportingDescrStatsResults", APT_IO, APT_IS_SEQ, mm, tic, toc);
+	cout << "Reporting general spatial statistics completed took " << (toc-tic) << " seconds" << endl;
 }
 
 
@@ -3382,7 +4316,7 @@ void horderdist::report_apriori_descrstat2( const long tsktype, const string whi
 	}
 
 	sslog.precision(18);
-	apt_real bend = hist.start() + hist.width();
+	double bend = hist.start() + hist.width();
 
 	//global meta information
 
@@ -3394,11 +4328,11 @@ void horderdist::report_apriori_descrstat2( const long tsktype, const string whi
 
 		if ( owner->binner->metadata.volume_inside > EPSILON ) { //now division is safnm^3...
 
-			apt_real globaldensity = static_cast<apt_real>(owner->binner->metadata.nions_inside);
-			globaldensity /= static_cast<apt_real>(owner->binner->metadata.volume_inside);
+			double globaldensity = static_cast<double>(owner->binner->metadata.nions_inside);
+			globaldensity /= static_cast<double>(owner->binner->metadata.volume_inside);
 			sslog << "InsideAtomicDensityEst" << ";" << globaldensity << "\n";
 
-			apt_real norm = (1.f / globaldensity) * (1.f / ((4.f/3.f)*PI));
+			double norm = (1.f / globaldensity) * (1.f / ((4.f/3.f)*PI));
 			sslog << "NormalizationFactor" << ";" << norm << "\n";
 
 			//following the definitions on page 281ff of B. Gault, M. P. Moody, J. M. Cairney and S. P. Ringer
@@ -3414,13 +4348,13 @@ void horderdist::report_apriori_descrstat2( const long tsktype, const string whi
 
 			//##MK::according to A. Baddeley
 
-			apt_real half_dr = 0.5*hist.width();
+			double half_dr = 0.5*hist.width();
 
 			for( unsigned int b = 0; b < hist.bincount(); ++b, bend += hist.width() ) {
-				apt_real r =  hist.start() + (0.5 + static_cast<apt_real>(b)) * hist.width();
-				apt_real diff = (b > 0) ? static_cast<apt_real>(hist.report(b)-hist.report(b-1)) : 0.f;
-				apt_real sphvol = CUBE(r + half_dr) - CUBE(r - half_dr);
-				apt_real rdfval = (sphvol > EPSILON) ? norm*diff/sphvol : 0.f;
+				double r =  hist.start() + (0.5 + static_cast<double>(b)) * hist.width();
+				double diff = (b > 0) ? (hist.report(b) - hist.report(b-1)) : 0.f;
+				double sphvol = CUBE(r + half_dr) - CUBE(r - half_dr);
+				double rdfval = (sphvol > EPSILON) ? norm*diff/sphvol : 0.f;
 
 				sslog << r << ";" << hist.report(b) << ";" << diff << ";" << sphvol << ";" << rdfval << "\n";
 			}
@@ -3428,9 +4362,8 @@ void horderdist::report_apriori_descrstat2( const long tsktype, const string whi
 			sslog << "" << ";" << hist.cnts_highest << ";;;\n";
 		}
 	}
-	if ( tsktype == E_NEAREST_NEIGHBOR || tsktype == E_KNN || tsktype == E_MKNN ) {
+	if ( tsktype == E_NEAREST_NEIGHBOR || tsktype == E_MKNN ) {
 		if ( tsktype == E_NEAREST_NEIGHBOR )	sslog << "1NN\n";
-		if ( tsktype == E_KNN )					sslog << to_string(Settings::SpatStatKNNOrder+1) << "NN\n";
 		if ( tsktype == E_MKNN )				sslog << whichmetric << "\n";
 
 		sslog << "BinEnd(r);Counts;ECDFon[BinMinBinMax];CDFon[BinMinBinMax]\n";
@@ -3441,13 +4374,13 @@ void horderdist::report_apriori_descrstat2( const long tsktype, const string whi
 		sslog << hist.start() << ";" << hist.cnts_lowest << ";;\n";
 
 		//get cumulative sum on [ ) interval
-		apt_real cum_sum = 0.f;
+		double cum_sum = 0.f;
 		for( unsigned int b = 0; b < hist.bincount(); ++b) { cum_sum += hist.report(b); }
 
-		apt_real sum = 0.f;
+		double sum = 0.f;
 		for( unsigned int b = 0; b < hist.bincount(); ++b, bend += hist.width() ) {
 			sum += hist.report(b);
-			apt_real csum = (cum_sum > EPSILON) ? (sum / cum_sum) : 0.f;
+			double csum = (cum_sum > EPSILON) ? (sum / cum_sum) : 0.f;
 			sslog << bend << ";" << hist.report(b) << ";" << sum << ";" << csum << "\n";
 		}
 
@@ -3462,7 +4395,7 @@ void horderdist::report_apriori_descrstat2( const long tsktype, const string whi
 		//below hist.start() lower tail dump
 		sslog << hist.start() << ";" << hist.cnts_lowest << "\n";
 		//on[ ) interval
-		size_t sum = 0; //MK::must be larger enough
+		double sum = 0;
 		for( unsigned int b = 0; b < hist.bincount(); ++b, bend += hist.width() ) {
 			sum += hist.report(b);
 			sslog << bend << ";" << sum << "\n";
@@ -3474,6 +4407,170 @@ void horderdist::report_apriori_descrstat2( const long tsktype, const string whi
 	sslog.flush();
 	sslog.close();
 }
+
+
+void horderdist::report_apriori_descrstat3( const string whichtarget, const string againstwhich, discrhistogram & hist )
+{
+//report geometry and spatial partitioning of the KDTree
+	//are we randomized or not?
+	string fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".NBCNTinRMAX." + whichtarget + "." + againstwhich;
+	if ( owner->rndmizer->is_shuffled() == true && owner->rndmizer->is_applied() == true )
+		fn += ".Rndmized.csv";
+	else
+		fn += ".Original.csv";
+
+	ofstream sslog;
+	sslog.open( fn.c_str() );
+	if ( sslog.is_open() == false ) {
+		string mess = "Unable to open " + fn;
+		stopping(mess);
+		return;
+	}
+
+	sslog.precision(18);
+
+	sslog << "NeighborCountInRMax\n";
+	sslog << "Value;Counts;ECDFon[BinMinBinMax];CDFon[BinMinBinMax]\n";
+	sslog << "1;1;1;1\n";
+	sslog << "Value;Counts;ECDFon[BinMinBinMax];CDFon[BinMinBinMax]\n";
+
+	//get cumulative sum on [ ) interval
+	double cum_sum = 0.f;
+	for( size_t b = 0; b < hist.cnts.size(); ++b) {
+		cum_sum += hist.cnts.at(b);
+	}
+
+	double sum = 0.f;
+	for( size_t b = 0; b < hist.cnts.size(); ++b ) {
+		sum += hist.cnts.at(b);
+		double csum = (cum_sum > EPSILON) ? (sum / cum_sum) : 0.f;
+		sslog << b << ";" << hist.cnts.at(b) << ";" << sum << ";" << csum << "\n";
+	}
+
+	sslog.flush();
+	sslog.close();
+}
+
+
+/*
+void horderdist::report_apriori_descrstat4( const string whichtarget, const string againstwhich, npc3d & pcf )
+{
+	sqb pcfinfo = pcf.get_support();
+
+	//##MK::int bounds checks
+	string fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".NPCORR." + whichtarget + "." + againstwhich;
+	fn += ".NEDGCUBE." + to_string(pcfinfo.nx);
+	if ( owner->rndmizer->is_shuffled() == true && owner->rndmizer->is_applied() == true )
+		fn += ".Rndmized.raw";
+	else
+		fn += ".Original.raw";
+
+	MPI_File msFileHdl;
+	MPI_Status msFileStatus;
+	//in mpi.h MPI_Offset is defined as an __int64 which is long long, thus we can jump much more than 2^32 directly when unsigned int would be utilized
+	MPI_File_open( MPI_COMM_SELF, fn.c_str(), MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &msFileHdl );
+	long long totalOffset = 0;
+	MPI_File_seek( msFileHdl, totalOffset, MPI_SEEK_SET );
+
+	double* rawdata = NULL;
+	try { rawdata = new double[pcfinfo.nxy]; }
+	catch (bad_alloc &ioexc) {
+		stopping("Unable to allocate memory for writing in descrstats4!");
+		return;
+	}
+
+	int NX = pcfinfo.nx;
+	int NY = pcfinfo.ny;
+	int NZ = pcfinfo.nz;
+	int NXY = pcfinfo.nxy;
+
+	for( int z = 0; z < NZ; ++z ) {
+		for ( int i = 0; i < NXY; ++i ) { rawdata[i] = 0.f; } //debug label
+		double dummy = 0.f;
+		for ( int y = 0; y < NY; ++y ) {
+			for ( int x = 0; x < NX; ++x ) {
+				dummy = dummy + pcf.cnts.at(x + y*NX + z*NXY);
+				rawdata[x + y*NX] = static_cast<double>(pcf.cnts.at(x + y*NX + z*NXY));
+			}
+		}
+		cout << "Section z " << z << " has " << dummy << " counts" << endl;
+		//xy layer at once
+		MPI_File_write(msFileHdl, rawdata, NXY, MPI_DOUBLE, &msFileStatus); //implicit advancement of fp
+	} //next region z with regions on stacked top of one another in y
+
+	delete [] rawdata; rawdata = NULL;
+	MPI_File_close(&msFileHdl); //no Barrier as MPI_COMM_SELF
+}
+*/
+
+
+void horderdist::report_npc3d_bincenters_hdf5( npc3d & pcf )
+{
+	sqb pcfinfo = pcf.get_support();
+	vector<size_t> u64buf;
+	u64buf.push_back( pcfinfo.nx );
+	u64buf.push_back( pcfinfo.ny );
+	u64buf.push_back( pcfinfo.nz );
+
+	int status = 0;
+	h5iometa ifo = h5iometa( PARAPROBE_DESCRSTATS_NCORR_BINNING, u64buf.size(), 1 );
+	status = owner->owner->resultsh5Hdl.create_contiguous_matrix_u64le( ifo );
+	h5offsets offs = h5offsets( 0, u64buf.size(), 0, 1, u64buf.size(), 1 );
+	cout << "Reporting 2-point spatial statistics histogram bin extent" << endl;
+	status = owner->owner->resultsh5Hdl.write_contiguous_matrix_u64le_hyperslab( ifo, offs, u64buf );
+
+	vector<float> wf32buf;
+	try {
+		wf32buf.reserve( 3*pcfinfo.nxyz ); //xyz are three position values per bin
+	}
+	catch (std::bad_alloc &croak) {
+		return;
+	}
+	for( size_t z = 0; z < pcfinfo.nz; ++z) {
+		for( size_t y = 0; y < pcfinfo.ny; ++y) {
+			for( size_t x = 0; x < pcfinfo.nx; ++x) {
+				p3d thisone = pcf.get_bincenter(x, y, z);
+				wf32buf.push_back( thisone.x );
+				wf32buf.push_back( thisone.y );
+				wf32buf.push_back( thisone.z );
+			}
+		}
+	}
+
+	//const string thish5fn = owner->owner->resultsh5Hdl.h5resultsfn;
+	ifo = h5iometa( PARAPROBE_DESCRSTATS_NCORR_CELLCENTER, (wf32buf.size() / 3), 3 );
+	status = owner->owner->resultsh5Hdl.create_contiguous_matrix_f32le( ifo );
+	offs = h5offsets( 0, (wf32buf.size() / 3), 0, 3, (wf32buf.size() / 3), 3 );
+	cout << "Reporting 2-point spatial statistics histogram bin center positions" << endl;
+	status = owner->owner->resultsh5Hdl.write_contiguous_matrix_f32le_hyperslab( ifo, offs, wf32buf );
+	cout << status << endl;
+	wf32buf = vector<float>();
+}
+
+
+void horderdist::report_npc3d_histvalues_hdf5( const string whichtarget, const string againstwhich, npc3d & pcf )
+{
+
+	string thiscombination = whichtarget + "_" + againstwhich;
+	if ( owner->rndmizer->is_shuffled() == true && owner->rndmizer->is_applied() == true )
+		thiscombination += "_Rndm";
+	else
+		thiscombination += "_Orig";
+
+	//##MK::check if npc3d results for such specific combination exist already
+
+	int status = 0;
+	string fwslash = "/";
+	string pcfdsetnm = PARAPROBE_DESCRSTATS_NCORR + fwslash + thiscombination;
+	cout << "Writing 2-point spatial statistics for __" << thiscombination << "__ to H5 file" << endl;
+	h5iometa ifo = h5iometa( pcfdsetnm, pcf.cnts.size(), 1 );
+	h5offsets offs = h5offsets( 0, pcf.cnts.size(), 0, 1, pcf.cnts.size(), 1);
+	status = owner->owner->resultsh5Hdl.create_contiguous_matrix_u32le( ifo );
+	cout << "Creation " << status << endl;
+	status = owner->owner->resultsh5Hdl.write_contiguous_matrix_u32le_hyperslab( ifo, offs, pcf.cnts );
+	cout << "Write " << status << endl;
+}
+
 
 
 unsigned int flag_as_guarded( const unsigned int typid, const unsigned int maxtypid )
@@ -3626,7 +4723,8 @@ dbscanres clustertask::hpdbscan( const apt_real d, const size_t Nmin, const unsi
 										boss->owner->binner->vxlgrid,
 										ions_filtered,
 										boss->owner->owner->mypse.get_maxtypeid(),
-										tskid, runid );
+										tskid, runid,
+										boss->owner->owner->clusth5Hdl );
 	N.Nmin = Nmin;
 	N.Dmax = d;
 
@@ -3752,8 +4850,8 @@ void clustertask::generic_spatstat( const unsigned int runid )
 	{
 		double mytic, mytoc;
 		mytic = omp_get_wtime();
-		int jnt = omp_get_num_threads(); unsigned int nt = static_cast<unsigned int>(jnt);
-		int jmt = omp_get_thread_num(); unsigned int mt = static_cast<unsigned int>(jmt);
+		int jnt = omp_get_num_threads(); //unsigned int nt = static_cast<unsigned int>(jnt);
+		int jmt = omp_get_thread_num(); //unsigned int mt = static_cast<unsigned int>(jmt);
 
 		//all distances squared for efficiency unless nbor objects
 		//basic operation is as follows take each ion, if it is sufficiently distant from tip take into consideration
@@ -3810,31 +4908,6 @@ void clustertask::generic_spatstat( const unsigned int runid )
 					else
 						mylost++;
 				}
-				else if ( Settings::SpatialDistributionTask == E_KNN ) {
-					//are there at least neighbors first of all regardless of type
-					//to be able to name at all a k-th order neighbor?
-					if ( neighbors.size() > Settings::SpatStatKNNOrder ) { //MK::even getting the zeroth element requires neighbors to contain at least one element!
-						//filter target candidates before sorting
-						vector<nbor> tmp;
-						for( size_t nbb = 0; nbb < neighbors.size(); ++nbb) {
-							if( is_clustered( neighbors.at(nbb).m, mxtypid ) == true )
-								continue;
-							else
-								tmp.push_back( neighbors.at(nbb) );
-						}
-						//still enough candidates to name a KNNOrder?
-						if ( tmp.size() > Settings::SpatStatKNNOrder ) {
-
-							nth_element( tmp.begin(), tmp.begin() + Settings::SpatStatKNNOrder,
-									tmp.end(), SortNeighborsForAscDistance );
-
-							nbor luckyone = tmp.at(Settings::SpatStatKNNOrder);
-							myres.add( luckyone.d );
-						}
-						else { mylost++; } //done not enough of specific type at all to give k-th
-					}
-					else { mylost++; } //done not enough in search sphere of any type at all to give k-th
-				}
 				else { //all other specific spatial statistics tasks
 					continue;
 				}
@@ -3866,7 +4939,6 @@ void clustertask::generic_spatstat( const unsigned int runid )
 	if ( Settings::SpatialDistributionTask == E_RDF )	what = "RDF";
 	else if ( Settings::SpatialDistributionTask == E_NEAREST_NEIGHBOR ) what = "1NN";
 	else if ( Settings::SpatialDistributionTask == E_RIPLEYK ) what = "RIPK";
-	else if ( Settings::SpatialDistributionTask == E_KNN ) what = to_string(Settings::SpatStatKNNOrder) + "NN";
 	else what = "";
 
 	string whichtarg = "";
@@ -4308,7 +5380,8 @@ void vxlizer::rectangular_binning()
 	//MK::we do not deallocate the binning memory!
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "TipBinning", APT_UTL, tic, toc);
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "TipBinning", APT_UTL, APT_IS_PAR, mm, tic, toc);
 	cout << "TipBinning completed took " << (toc-tic) << " seconds" << endl;
 }
 
@@ -4332,7 +5405,8 @@ void clusterer::initialize_clustering_tasks()
 	parse_tasks( Settings::ClusteringTasksCode, clustering_tasks, owner->owner->mypse );
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "ClusteringInitTasks", APT_UTL, tic, toc);
+	memsnapshot mm = memsnapshot();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "ClusteringInitTasks", APT_UTL, APT_IS_SEQ, mm, tic, toc);
 }
 
 
@@ -4429,7 +5503,8 @@ void clusterer::maximum_separation_method()
 	} //proceed with next task
 
 	double toc = MPI_Wtime();
-	owner->owner->tictoc.prof( "ClusteringMaximumSeparationDmaxStudy", APT_CLU, tic, toc);
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "ClusteringMaximumSeparationDmaxStudy", APT_CLU, APT_IS_PAR, mm, tic, toc);
 	cout << "Conducting thread-parallelized HPDBScan-power Maximum Separation Method completed took " << (toc-tic) << " seconds" << endl;
 }
 
@@ -4449,13 +5524,16 @@ void clusterer::maximum_separation_report( const string whichtarget, const strin
 	sslog.open( fn.c_str() );
 	sslog.precision(18);
 
-	sslog << "DMaxID;DMax;NMin;Ncluster;Nlinkpoints;Ncorepoints;Nnoisepoints;Nclusteredpoints\n";
-	sslog << "1;nm;1;1;1;1;1;1\n";
-	sslog << "DMaxID;DMax;NMin;Ncluster;Nlinkpoints;Ncorepoints;Nnoisepoints;Nclusteredpoints\n";
+	//##MK::as maximum separation method is not DBScan the output of DBScan itself is useless the cluster population is filtered afterwards
+	//##MK::check however whether the HPDBScan implementation checks at all whether the neighborhood query function returns neighbors excluding or including the query point
+
+	sslog << "DMaxID;DMax;NMin;Ncluster\n"; //;Nlinkpoints;Ncorepoints;Nnoisepoints;Nclusteredpoints\n";
+	sslog << "1;nm;1;1\n"; //;1;1;1;1\n";
+	sslog << "DMaxID;DMax;NMin;Ncluster\n"; //;Nlinkpoints;Ncorepoints;Nnoisepoints;Nclusteredpoints\n";
 	size_t id = 0;
 	for( auto it = results.begin(); it != results.end(); ++it, id++ ) {
-		sslog << id << ";" << it->Dmax << ";" << it->Nmin << ";" << it->nClusterFound << ";";
-		sslog << (it->nClustered - it->nCore) << ";" << it->nCore << ";" << it->nNoise << ";" << it->nClustered << "\n";
+		sslog << id << ";" << it->Dmax << ";" << it->Nmin << ";" << it->nClusterFound << "\n";
+		//sslog << ";" << (it->nClustered - it->nCore) << ";" << it->nCore << ";" << it->nNoise << ";" << it->nClustered << "\n";
 	}
 	sslog.flush();
 	sslog.close();
@@ -4465,13 +5543,1047 @@ void clusterer::maximum_separation_report( const string whichtarget, const strin
 }
 
 
+vics_materialpoint_result::vics_materialpoint_result()
+{
+	MatPointPos = p3d();
+	FFTSummary = vicsfftsummary();
+}
+
+
+vics_materialpoint_result::vics_materialpoint_result( const p3d here )
+{
+	MatPointPos = here;
+	FFTSummary = vicsfftsummary();
+}
+
+
+vics_materialpoint_result::~vics_materialpoint_result()
+{
+}
+
+
+
+crystindexer::crystindexer()
+{
+	owner = NULL;
+	info = vicsmeta();
+}
+
+
+crystindexer::~crystindexer()
+{
+	//do not delete owner is only a backreference
+}
+
+
+void crystindexer::configure()
+{
+	//configure threadlocal worker and initiate FFT plans
+	//for every point we need to scan through elevation and azimuth space
+	int NumberOfBins = pow( static_cast<int>(2), static_cast<int>(Settings::CrystalloHistoM) );
+	apt_real R = Settings::CrystalloRadiusMax;
+	apt_real dR = 2.f*R / (static_cast<apt_real>(NumberOfBins) - 2.f);
+	apt_real binner = static_cast<apt_real>(NumberOfBins) / (2.f*R+2.f*dR);
+	info = vicsmeta( R, dR, binner, NumberOfBins );
+
+	#pragma omp critical
+	{
+		cout << "Thread/NumberOfBins/R/dR/Binner = " << omp_get_thread_num() << ";" << info.NumberOfBins << ";" << info.R << ";" << info.dR << ";" << info.binner << endl;
+	}
+
+
+	//precompute windowing coefficients
+	//J. F. Kaiser, R. W. Schafer, 1980, On the use of the I_0-sinh window for spectrum analysis,
+	//doi::10.1109/TASSP.1980.1163349
+	window_coeff = vector<float>( NumberOfBins, 1.f );
+	//window_coeff = vector<double>( NumberOfBins, 1.f );
+	if ( Settings::WindowingMethod == E_KAISER_WINDOW ) {
+		double alpha = Settings::WindowingAlpha;
+		double zero = 0.f;
+		double I0a = boost::math::cyl_bessel_i( zero, alpha );
+
+		for ( int i = 0; i < NumberOfBins; i++ ) {
+			//w(n) modified Bessel function of first kind with shape parameter WindowingAlpha
+			//w(n) = I_0(alpha*sqrt(1-(n-(N/2)/(N/2)))^2)) / I_0(alpha) for 0<= n <= N-1  otherwise w(n) = 0
+
+			double nN = (static_cast<double>(i) - (static_cast<double>(NumberOfBins) / 2.f)) / (static_cast<double>(NumberOfBins) / 2.f);
+			double x = alpha * sqrt( 1.f - SQR(nN) );
+			double I0x = boost::math::cyl_bessel_i( zero, x );
+
+			window_coeff.at(i) = static_cast<float>(I0x / I0a); //high precision bessel then cut precision
+cout << setprecision(32) << "Computing modified Bessel function of first kind I0(v,x) coefficients " << i << "\t\t" << window_coeff.at(i) << "\n";
+		}
+cout << "Kaiser windowing defined" << endl;
+	}
+	else { //E_RECTANGULAR_WINDOW
+		window_coeff.at(0) = 0.f;
+		window_coeff.back() = 0.f;
+cout << "Rectangular windowing defined" << endl;
+	}
+}
+
+
+/*
+vicsresult crystindexer::ExecutePeaksFinding1D( vector<pair<double,double>> & CntsVsFreq )
+{
+	//##MK::implement 1D peak finding algorithm
+	//MK::quick and dirty here O(N), divide and conquer O(lg(N)) solution should be possible for future...
+
+	std::sort( CntsVsFreq.begin(), CntsVsFreq.end() );
+
+	vicsresult tmp = vicsresult();
+
+
+//	singleresult.fft_allc_success = true;
+//	singleresult.fft_plac_success = true;
+//	singleresult.fft_init_success = true;
+//	singleresult.fft_comp_success = true;
+//	singleresult.fft_free_success = true;
+	tmp.max1 = CntsVsFreq.at(CntsVsFreq.size()-1);
+	tmp.max2 = CntsVsFreq.at(CntsVsFreq.size()-2);
+	tmp.max3 = CntsVsFreq.at(CntsVsFreq.size()-3);
+
+	return tmp;
+}
+
+
+vicsfftstatus crystindexer::ExecuteSingleDiscreteFFT(
+		vector<unsigned int> const & in, vector<pair<double,double>> & out )
+{
+	vicsfftstatus whatsapp = vicsfftstatus();
+
+	////vector<float> dhistogram = vector<float>(info.NumberOfBins, 0.f);
+	size_t NN = info.NumberOfBins;
+	vector<float> dhistogram( NN, 0.f);
+
+	//windowing of the histogram and normalizing
+	//float norm = static_cast<float>(cand.size());
+	for( size_t i = 1; i < NN-1; i++ ) { //+1 and -1 because left and right pad position
+		////dhistogram[i] = window_coeff[i] * static_cast<float>(uihistogram[i]); // / norm;
+		//float cnts = in[i];
+		dhistogram[i] = window_coeff[i] * in[i]; //cnts; // / norm;
+//##cout << i << "\t\t" << dhistogram[i] << endl;
+	}
+
+	rfftn* anfft = NULL;
+	try {
+		anfft = new rfftn;
+	}
+	catch (std::bad_alloc &ompcroak)
+	{
+		return whatsapp;
+	}
+
+	//cout << "Attempting1 an FFT anfft __" << anfft << "___" << endl;
+	anfft->init( NN );
+	//cout << "Attempting2 an FFT anfft __" << anfft << "___" << endl;
+	anfft->fill( dhistogram );
+	//cout << "Attempting3 an FFT anfft __" << anfft << "___" << endl;
+	anfft->forwardFFT();
+	//cout << "Done with an FFT anfft __" << anfft << "___" << endl;
+
+	//create plan for executing a 1D discrete fast Fourier transform using the IntelMKL library
+	//##MK::in the future can reutilize this plan FFT, histograms have the same size for every case
+	vector<char>* fftTemp = new vector<char>;
+//	MKL_LONG NI = 512; //##MK::
+//	MKL_LONG requiredSize = NI * sizeof(MKL_Complex16);
+//	fftTemp->resize(requiredSize);
+//	MKL_Complex16* fftTempP = (MKL_Complex16*) &(*fftTemp)[0];
+
+
+
+//	DFTI_CONFIG_VALUE precision = DFTI_DOUBLE; //DFTI_SINGLE;
+//	DFTI_DESCRIPTOR_HANDLE descr;
+//	MKL_LONG dimensions = dhistogram.size();
+
+//	//perform single precision discrete Fourier transform of this histogram using single threaded Intel MKL
+//	////vector<std::complex<float>> out( dhistogram.size() );
+//	vector<std::complex<double>> tmp( dimensions, std::complex<double>(0.f,0.f) );
+
+//	MKL_LONG status;
+//	status = DftiCreateDescriptor(&descr, precision, DFTI_COMPLEX, 1, dimensions);
+//	if ( status == DFTI_NO_ERROR )
+//		whatsapp.fft_allc_success = true;
+
+//	status = DftiSetValue(descr, DFTI_PLACEMENT, DFTI_NOT_INPLACE);
+//	if ( status == DFTI_NO_ERROR )
+//		whatsapp.fft_plac_success = true;
+
+//	status = DftiCommitDescriptor(descr);
+//	if ( status == DFTI_NO_ERROR )
+//		whatsapp.fft_init_success = true;
+
+//	status = DftiComputeForward(descr, dhistogram.data(), tmp.data() ); //&dhistogram[0], fftTempP );the FFT computation itself
+//	if ( status == DFTI_NO_ERROR )
+//		whatsapp.fft_comp_success = true;
+
+//	status = DftiFreeDescriptor(&descr);
+//	if ( status == DFTI_NO_ERROR )
+//		whatsapp.fft_free_success = true;
+
+//	//compute absolute value of Fourier transform results in first part of conjugate-even halfspace
+//	////size_t NN = static_cast<size_t>(ceil( 0.5*static_cast<float>(out.size())));
+//	//size_t NN = 256; //######static_cast<size_t>(ceil( 0.5*static_cast<double>(out.size()) ));
+//	////vector<pair<apt_real, apt_real>> ea_result( NN, make_pair(0.f, 0.f) );
+//	//vector<pair<double, double>> ea_result( NN, make_pair(0.f, 0.f) );
+//	////float mult = 1.f / static_cast<float>(NN) * (info.R + info.dR); //nm ##MK
+//	size_t NN = out.size();
+
+
+	float mult = static_cast<float>(info.R + info.dR) / static_cast<float>(NN);
+//##cout << "FFT result component values" << endl;
+	size_t ni = out.size();
+	for ( size_t i = 0; i < ni; ++i ) {
+		////float reci_pos = static_cast<float>(i) * mult;
+		////float fft_abs = sqrt( SQR(out[i].real()) + SQR(out[i].imag()) );
+		double reci_pos = static_cast<double>(i) * mult;
+		double fft_abs = sqrt( SQR(anfft->fftTempP[i].real) + SQR(anfft->fftTempP[i].imag) );
+		//double fft_abs = sqrt( SQR(fftTempP[i].real) + SQR(fftTempP[i].imag) );
+
+		//if ( isnan(fft_abs) )
+		//	cout << i << "\t\t" << tmp[i].real() << "\t\t" << tmp[i].imag() << "\t\t" << reci_pos << ";" << fft_abs << endl;
+
+		out[i] = make_pair( reci_pos, fft_abs ); //-1.f*fft_abs );
+	}
+
+	//free resources
+	delete anfft;
+
+	//cout << "FreedAnFFT" << endl;
+
+	//we are interest in finding those pairs with the n largest signal magnitude
+	//if working naively were could achieve this by dumping magnitude values in our ea_result buffer
+	//sort the buffer ascendingly and pick the largest n i.e. last n values
+	//however this not efficient
+	//better we multiply the magnitude with -1, given that its real and >= 0 this factually
+	//reverse the sorting, for instance results like 1.2, 4.5, 3.1, 7.8, 5.1 will be ordered
+	//like so -7.8, -5.1, -4.5, -3.1, -1.2 now we just need to pick the first n objects using nth_element
+	//with usually O(N) instead of O(NlgN) complexity
+	//and reverse sign (-1.f) only for the n such identified candidates
+
+	//ea_result.at(j) = make_pair( static_cast<apt_real>(j), -1.f * sqrt(SQR(it->real())+SQR(it->imag())) );
+
+	//std::complex<float> PconjP = *it * std::conj(*it);
+	//ea_result.at(j) = make_pair( static_cast<apt_real>(j), -1.f*PconjP.real() );
+
+	////std::complex<float> P = *it;
+	////std::complex<float> PconjP = P * std::conj(*it);
+	////Pyy.push_back( P * std::conj(*it) );
+	///cout << P.real() << "\t\t" << P.imag() << "\t\t" << Pyy.real() << "\t\t" << Pyy.imag() << endl;
+
+
+	return whatsapp;
+}
+
+
+vicsresult crystindexer::SingleElevationAzimuth( const apt_real ee, const apt_real aa,
+		vector<d3d> const & ions, vicsfftsummary & diary )
+{
+	//reset temporaries
+	vicsresult singleresult = vicsresult();
+
+	vector<unsigned int> uihistogram( info.NumberOfBins, 0 );
+	size_t NN = static_cast<size_t>(ceil( 0.5*static_cast<float>(info.NumberOfBins) ));
+
+	vector<pair<double,double>> ea_result( NN, make_pair(0.f,0.f) );
+	//vector<double> ea_result(2*NN, 0.f);
+	//compute signed distance of every candidate point to current plane given current potential crystal plane normal vector
+	//d = dot(n,cand), //##MK::employ bSIMD here make cand aligned memory
+	for ( auto kt = ions.begin(); kt != ions.end(); kt++ ) {
+		apt_real d = 	+ sin(ee) * cos(aa) * kt->u
+						- sin(ee) * sin(aa) * kt->v
+						+           cos(ee) * kt->w;
+
+		apt_real b = floor((d + info.R + info.dR)*info.binner);
+		unsigned int bin = static_cast<unsigned int>(b);
+		uihistogram[bin]++;
+//cout << d << "\t\t" << b << "\t\t" << bin << "\t\t" << uihistogram[bin] << endl;
+	}
+
+	//check if histogram front and end are really zero
+	if ( uihistogram.at(0) == 0 && uihistogram.back() == 0 ) {
+//cout << e << "\t\t" << a << "\t\t-->doing\n";
+
+		vicsfftstatus stats = ExecuteSingleDiscreteFFT( uihistogram, ea_result );
+
+		singleresult = ExecutePeaksFinding1D( ea_result );
+		singleresult.elevation = ee;
+		singleresult.azimuth = aa;
+
+		//if ( stats.fft_allc_success == true && stats.fft_plac_success == true &&
+		//		stats.fft_init_success == true && stats.fft_comp_success == true &&
+		//		stats.fft_free_success == true ) {
+
+	//		diary.nFFTsSuccess++;
+
+	//		//post-process result
+	//		std::sort( ea_result.begin(), ea_result.end() );
+
+
+	//		singleresult.fft_allc_success = true;
+	//		singleresult.fft_plac_success = true;
+	//		singleresult.fft_init_success = true;
+	//		singleresult.fft_comp_success = true;
+	//		singleresult.fft_free_success = true;
+	//		singleresult.max1 = ea_result.at(ea_result.size()-1);
+	//		singleresult.max2 = ea_result.at(ea_result.size()-2);
+	//		singleresult.max3 = ea_result.at(ea_result.size()-3);
+	//	}
+	//	else {
+	//		diary.nFFTsFailed++;
+	//	}
+	//
+	}
+	//else {
+	//	diary.nFFTsFailed++;
+	//}
+
+	return singleresult;
+
+
+//		//pull entire histogram
+//		//##MK::comment out to avoid storing excessive intermediate results
+//		for( size_t i = 0; i < NN; ++i ) {
+//			dumpfull[i].cnts = dhistogram[i];
+//			dumpfull[i].FFTr = out[i].real();
+//			dumpfull[i].FFTi = out[i].imag();
+//			dumpfull[i].pw = sqrt( SQR(out[i].real()) + SQR(out[i].imag()) );
+//			//std::complex<float> PconjP = out[i] * std::conj(out[i]);
+//			//dumpfull[i].pw = PconjP.real();
+////##cout << dumpfull[i].cnts << ";" << dumpfull[i].FFTr << ";" << dumpfull[i].FFTi << ";" << dumpfull[i].pw << endl;
+//		}
+
+		//cout << e << "\t\t" << a << "\t\t-->success\n";cout << e << "\t\t" << a << "\t\t-->SUCCESS hISTOGRAM padding region contains non-zero values!\n";
+}
+
+
+void crystindexer::vicsmethod_core_incrementalfft( p3d const & target, vector<d3d> const & cand )
+{
+	//scan through elevation and azimuth, for each pair project candidate
+	//MK::the reason to use only power of 2 number of bins is that FFT is most efficient for such cases
+
+	//add a dR guard zone about the histogram to the left and right ends
+	//this effectively pads the histogram to zero, alternatively: ##MK::use windowing approaches like Kaiser etc...
+	vector<vicsresult> & dumpsummary = res.back().ElevAzimTblSummary;
+	//size_t NN = static_cast<size_t>(ceil( 0.5*static_cast<float>(info.NumberOfBins) ));
+
+	//##MK::comment out to avoid storing excessive intermediate results
+	//res.back().ElevAzimTblHistogram.push_back( vector<vicshistbin>( NN, vicshistbin()) );
+	//vector<vicshistbin> & dumpfull = res.back().ElevAzimTblHistogram.back();
+
+	//temporaries
+	//vector<unsigned int> uihistogram( info.NumberOfBins, 0);
+	//vector<pair<double,double>> ea_result( NN, make_pair(0.f, 0.f) );
+	//vicsresult health = vicsresult();
+	vicsfftsummary diary = vicsfftsummary();
+	diary.nIons = cand.size();
+
+	//elevation/azimuth loop nest
+	for( apt_real e = Settings::ElevationAngleMin; e <= Settings::ElevationAngleMax; e += Settings::ElevationAngleIncr ) {
+		//apt_real e = DEGREE2RADIANT(-5.f);
+		//apt_real a = DEGREE2RADIANT(0.f);
+
+		//apt_real sin_e = sin(e);
+		//apt_real cos_e = cos(e);
+		for ( apt_real a = Settings::AzimuthAngleMin; a <= Settings::AzimuthAngleMax; a += Settings::AzimuthAngleIncr ) {
+			//apt_real sin_a = sin(a);
+			//apt_real cos_a = cos(a);
+
+			vicsresult thisone = SingleElevationAzimuth( e, a, cand, diary );
+
+			dumpsummary.push_back( thisone );
+		} //next azimuth value to analyze at fixed elevation
+	} //next set of azimuth values for a given elevation
+
+	res.back().FFTSummary = diary;
+}
+*/
+
+
+void crystindexer::vicsmethod_core_incrementalfft2( p3d const & target, vector<d3d> const & cand )
+{
+	//MK::the reason to use only power of 2 number of bins is that FFT relatively most efficient
+	vector<vicsresult> & dumpsummary = res.back().ElevAzimTblSummary;
+	bool ReportHeavyData = Settings::IOCrystallography;
+
+	//MK::comment out to avoid storing excessive intermediate results
+	//res.back().ElevAzimTblHistogram.push_back( vector<vicshistbin>( NN, vicshistbin()) );
+	//vector<vicshistbin> & dumpfull = res.back().ElevAzimTblHistogram.back();
+
+	vicsfftsummary diary = vicsfftsummary();
+	diary.threadID = omp_get_thread_num();
+	diary.nIons = cand.size();
+
+	//elevation/azimuth loop nest
+	size_t NumberOfBins = info.NumberOfBins;
+	size_t NumberOfBinsHalf = static_cast<size_t>(ceil(0.5*static_cast<double>(NumberOfBins)));
+	float RdR = info.R + info.dR;
+	float BinMultiplier = info.binner;
+
+	//mapping of FFT bins to reciprocal frequency bins
+	vector<float> frequencies( NumberOfBinsHalf, 0.f);
+	float NormalizerFreq = RdR / static_cast<float>(NumberOfBinsHalf);
+	for( size_t i = 0; i < NumberOfBinsHalf; ++i) {
+		frequencies[i] = static_cast<float>(i) * NormalizerFreq;
+	}
+
+	//elevation/azimuth nested main loop
+	for( apt_real e = Settings::ElevationAngleMin; e <= Settings::ElevationAngleMax; e += Settings::ElevationAngleIncr ) {
+		//float e = DEGREE2RADIANT(-5.f); 	float a = DEGREE2RADIANT(0.f);
+		float sin_e = sin(e);
+		float cos_e = cos(e);
+		for ( apt_real a = Settings::AzimuthAngleMin; a <= Settings::AzimuthAngleMax; a += Settings::AzimuthAngleIncr ) {
+			float sin_a = sin(a);
+			float cos_a = cos(a);
+			float se_ca = +1.f*sin_e*cos_a;
+			float se_sa = -1.f*sin_e*sin_a;
+			float ce = +1.f*cos_e;
+
+			//histogram of projected signed distance of every point to current plane
+			//given the current plane normal vector parameterized through elevation and azimuth
+			vicsresult thisone = vicsresult();
+			thisone.elevation = e;
+			thisone.azimuth = a;
+			vector<unsigned int> uihistogram( NumberOfBins, 0 );
+			for ( auto kt = cand.begin(); kt != cand.end(); ++kt ) { //d = dot(n,cand), ##MK::bSIMD
+				float d = se_ca*kt->u + se_sa*kt->v + ce*kt->w;
+				float b = floor((d + RdR)*BinMultiplier);
+				unsigned int bin = static_cast<unsigned int>(b);
+				uihistogram[bin]++;
+				//cout << d << "\t\t" << b << "\t\t" << bin << "\t\t" << uihistogram[bin] << endl;
+			}
+			//vector<uint32_t, bs::allocator<uint32_t> uihistogram(NumberOfBins, 0); //##MK::check if filled with 0
+
+			//did padding bins remain empty, if so we are ready for doing a discrete 1d FFT of dhistogram
+			if ( uihistogram[0] == 0 && uihistogram[NumberOfBins-1] == 0 ) {
+
+				//windowing of the histogram
+				//potential normalizing, definately translate uint2f32 to avoid accumulation of single precision errors
+				vector<float> dhistogram( NumberOfBins, 0.f);
+				//float NormalizingMultiplier = 1.f / static_cast<float>(cand.size());
+				for( size_t i = 1; i < NumberOfBins-1; ++i ) { //+1 and -1 because left and right pad position are zero already
+					dhistogram[i] = window_coeff[i] * static_cast<float>(uihistogram[i]);
+				}
+
+				//create plan for executing a 1D discrete fast Fourier transform using the IntelMKL library
+				rfftn* anfft = NULL;
+				anfft = new rfftn;
+				anfft->init( NumberOfBins, dhistogram );
+				anfft->forwardFFT(); //execute this plan 1d discrete FFT using IntelMKL library
+				//real to complex discrete 1d FFT has conjugate-even symmetry IMKL so work only on [0,NumberOfBinsHalf)
+				anfft->getMagnitude( NumberOfBinsHalf, dhistogram );
+				//MK::getMagnitude overwrites [0,NumberOfBinsHalf) with sqrt(zR^2+zI^2)
+				delete anfft;
+
+				//peak finding on [0,NumberOfBinsHalf), NumberOfBinsHalf is guaranteed = pow(2, (Settings::CrystalloHistoM-1) )
+				//##MK::first shot, O(n) finding of all clear localmaxima, first/last value checked separately to avoid if inside for loop,
+				vector<localmaximum> peaks;
+				//first bin a peak?
+				if ( dhistogram[0] > dhistogram[1] )
+					peaks.push_back( localmaximum(frequencies[0], dhistogram[0]) ); //frequently the case 0-freq peak
+				//peaks somewhere in the middle, ##MK::divide and conquer for better than O(n) complexity
+				for ( size_t b = 1; b < NumberOfBinsHalf-1; ++b ) {
+					if ( dhistogram[b-1] >= dhistogram[b] )
+						continue;
+					if ( dhistogram[b] <= dhistogram[b+1] )
+						continue;
+					//not continued
+					peaks.push_back( localmaximum(frequencies[b], dhistogram[b]) );
+				}
+				//last bin a peak?
+				if ( dhistogram[NumberOfBinsHalf-2] < dhistogram[NumberOfBinsHalf-1] )
+					peaks.push_back( localmaximum(frequencies[NumberOfBinsHalf-1], dhistogram[NumberOfBinsHalf-1]) );
+
+				//lastly find the three strongest peaks
+				//MK::a naive full sort on peaks has O(NlgN) time complexity, consider multiply dhistogram with -1.f and do nth_element partial sort
+				std::sort( peaks.begin(), peaks.end(), SortLocalMaximaForStrength );
+
+				//evaluate 3 strongest peaks of current transform and report as result
+				size_t idx = 0;
+				if ( peaks.size() >= 3) {
+					idx = peaks.size()-1;
+					thisone.max1 = make_pair(peaks[idx].position, peaks[idx].strength); //1 strongest
+					idx = peaks.size()-2;
+					thisone.max2 = make_pair(peaks[idx].position, peaks[idx].strength);
+					idx = peaks.size()-3;
+					thisone.max3 = make_pair(peaks[idx].position, peaks[idx].strength);
+				}
+
+				//bookkeeping
+				diary.nFFTsSuccess++;
+			}
+			else {
+				diary.nFFTsFailed++;
+			}
+
+			if ( ReportHeavyData == true ) {
+				dumpsummary.push_back( thisone );
+			}
+
+		} //next azimuth value to analyze at fixed elevation
+	} //next set of azimuth values for a given elevation
+
+	res.back().FFTSummary = diary;
+}
+
+
+/*void crystindexer::vicsmethod_core_batchfft_simd( p3d const & target, vector<d3d> const & cand )
+{
+	//MK::the reason to use only power of 2 number of bins is that FFT relatively most efficient
+	vector<vicsresult> & dumpsummary = res.back().ElevAzimTblSummary;
+
+	//MK::comment out to avoid storing excessive intermediate results
+	//res.back().ElevAzimTblHistogram.push_back( vector<vicshistbin>( NN, vicshistbin()) );
+	//vector<vicshistbin> & dumpfull = res.back().ElevAzimTblHistogram.back();
+
+	vicsfftsummary diary = vicsfftsummary();
+	diary.nIons = cand.size();
+
+
+	//reduce plan construction, memory initialization, and other overhead by performing
+	//a batch FFT, i.e. have a matrix of histograms and do single-threaded FFT of this at once
+	//each row is a histogram, matrix has as many columns info.NumberOfBins
+	//at higher memory initialization costs
+
+	//evaluate how many elevation/azimuth pairs to process per material volume point
+	size_t NumberOfTransforms = 0; //rows
+	for( apt_real e = Settings::ElevationAngleMin; e <= Settings::ElevationAngleMax; e += Settings::ElevationAngleIncr )
+		for ( apt_real a = Settings::AzimuthAngleMin; a <= Settings::AzimuthAngleMax; a += Settings::AzimuthAngleIncr )
+			NumberOfTransforms++;
+	size_t NumberOfBins = info.NumberOfBins; //columns
+
+	//allocate a buffer for storing elevation/azimuth pair results
+	vector<vicsresult> results( NumberOfTransforms, vicsresult());
+
+	//evaluate memory costs
+	size_t MemoryCosts = NumberOfTransforms * NumberOfBins * (sizeof(float) + 2*sizeof(float)); //initially needs uint32+float frees uint32 add 2xfloat
+	if ( MemoryCosts > (1024*1024*1024)) { //1GB per thread
+		cout << "Falling back to incrementally FFT" << endl;
+		return; //##MK
+	}
+
+	//vectorized filling of buffer
+	//using pack_f32 = bs::pack<float>; //we need aligned memory for vectorization to be maximally efficient
+	//, bs::allocator<unsigned int>
+	vector<unsigned int> cnts( NumberOfTransforms*NumberOfBins, 0);
+	float doffset = info.R + info.dR;
+	float binmult = info.binner;
+	size_t TransformID = 0;
+	for( apt_real e = Settings::ElevationAngleMin; e <= Settings::ElevationAngleMax; e += Settings::ElevationAngleIncr ) {
+		//pack_f32 sin_e{sin(e)};
+		//pack_f32 cos_e{cos(e)};
+		float sin_e = sin(e);
+		float cos_e = cos(e);
+		for ( apt_real a = Settings::AzimuthAngleMin; a <= Settings::AzimuthAngleMax; a += Settings::AzimuthAngleIncr ) {
+			//pack_f32 sin_a{sin(a)};
+			//pack_f32 cos_a{cos(a)};
+			float sin_a = sin(a);
+			float cos_a = cos(a);
+			float doffset = info.R + info.dR;
+			size_t TransformOffset = TransformID * NumberOfBins;
+			float sin_e__cos_a = +1.f * sin_e * cos_a;
+			float sin_e__sin_a = -1.f * sin_e * sin_a;
+			for( auto kt = cand.begin(); kt != cand.end(); ++kt ) { //cand is contiguous in cache
+				//dot product distance to projected on rotated inclined hkl plane
+				float d = sin_e__cos_a*kt->u  + sin_e__sin_a*kt->v  + cos_e*kt->w;
+				float b = floor((d + doffset)*binmult);
+				size_t bin = TransformOffset + static_cast<size_t>(b);
+				cnts[bin]++; //writing to restricted interval of contiguous cache
+			}
+			results[TransformID].elevation = e;
+			results[TransformID].azimuth = a;
+			TransformID++;
+		}
+	}
+
+	//windowing
+	vector<float> intensity( NumberOfTransforms*NumberOfBins, 0.f);
+	for( size_t trsfrm = 0; trsfrm < NumberOfTransforms; ++trsfrm ) { //contiguous cache again
+		size_t PositionOffset = trsfrm * NumberOfBins;
+		if ( cnts.at(PositionOffset+0) == 0 && cnts.at(PositionOffset+NumberOfBins-1) == 0 ) {
+			//add a dR guard zone about the histogram to the left and right ends
+			//this effectively pads the histogram to zero, in addition use windowing
+			size_t pos0 = PositionOffset+1;
+			size_t pos1 = PositionOffset+NumberOfBins-1;
+			for( size_t i = 1; i < NumberOfBins-1; ++i ) { //+1 and -1 because left and right pad position
+				intensity[PositionOffset+i] = window_coeff[i] * static_cast<float>(cnts[PositionOffset+bin]);
+			}
+		}
+		else {
+			#pragma omp critical
+			{
+				cerr << "Thread " << omp_get_thread_num() << " point " << target.x << ";" << target.y << ";" << target.z << " the padding region of transform " << trsfrm << " is has non-zero counts!" << endl; return;
+			}
+		}
+	}
+
+	//at this point cnts is no longer necessary so delete it
+	cnts.clear();
+
+	//batch discrete 1d FFT using IMKL
+	batch1dfft* bfft = NULL;
+	try {
+		bfft = new batch1dfft;
+	}
+	catch (std::bad_alloc &ompcroak)
+	{
+		cerr << "Thread " << omp_get_thread_num() << " unable to allocate BatchFFT processor class object" << endl;
+		return;
+	}
+
+	bfft->init( NumberOfBins );
+	bfft->fill( intensity );
+	bfft->comp_fFFT();
+
+	//now we are at peak memory consumption so take a snapshot here
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+
+	//pull results inplace back into intensity overwrite intensity inplace
+	bfft->get_abs( intensity );
+
+//	///get FrequencySpace positions
+//	size_t NumberOfBinsHalf = static_cast<size_t>(ceil(0.5*static_cast<float>(NumberOfBins)));
+//	for( size_t trsfrm = 0; trsfrm < NumberOfTransforms; ++trsfrm ) {
+//		size_t
+//		for ( size_t i = 0; i < ni; ++i ) {
+//			intensity[i] = sqrt( SQR(bfft->fftTempP[i].real) + SQR(anfft->fftTempP[i].imag) );
+//	}
+
+
+	//and get corresponding
+	size_t NumberOfBinsHalf = bfft->get_nihalf();
+	float ReciprocFreqSpaceScaling = static_cast<float>(info.R + info.dR) / static_cast<float>(NumberOfBinsHalf);
+	vector<float> reci_pos( NumberOfBinsHalf, 0.f );
+	for( size_t b = 0; b < NumberOfBinsHalf; ++b ) {
+		reci_pos[b] = static_cast<float>(b) * ReciprocFreqSpaceScaling;
+	}
+
+	//we have pull the FFT so can delete bfft
+	delete bfft;
+
+	//finally perform peak finding for each histogram
+	vector<localmaximum> peaks;
+	for( size_t trsfrm = 0; trsfrm < NumberOfTransforms; trsfrm++ ) {
+		size_t PositionOffset = trsfrm * NumberOfBins;
+		//real to complex discrete 1d FFT has conjugate-even symmetry IMKL so work only on [0,NumberOfBinsHalf)
+
+		//for every elevation/angle pair NumberOfBinsHalf is guaranteed = pow(2, (Settings::CrystalloHistoM-1) )
+		peaks.clear();
+
+		//##MK::to begin with stable O(n) time complex finding of all localmaxima
+		//check first value and last separately to avoid if in for loop,
+		//work on float intensity (which is now FFT value abs) [PositionOffset,PositionOffset+NumberOfBinsHalf)
+
+		//is first value a clear peak?
+		if ( intensity[PositionOffset] > intensity[PositionOffset+1] )
+			peaks.push_back( localmaximum( reci_pos[0], intensity[PositionOffset] ) );
+		//somewhere in a middle clear peaks?
+		//##MK::divide and conquer for better than O(n) complexity
+		for ( size_t b = PositionOffset+1; b < PositionOffset+NumberOfBinsHalf-1; b++ ) {
+			if ( intensity[b-1] < intensity[b] && intensity[b+1] < intensity[b] ) {
+				peaks.push_back( localmaximum(reci_pos[b-PositionOffset], intensity[b]) );
+			}
+		}
+		//is last value a clear peak?
+		if ( intensity[PositionOffset+NumberOfBinsHalf-2] < intensity[PositionOffset+NumberOfBinsHalf-1] )
+			peaks.push_back( localmaximum(reci_pos[NumberOfBinsHalf-1], intensity[PositionOffset+NumberOfBinsHalf-1]) );
+
+		//##MK::find n-th strongest peaks
+		//MK::a naive full sort on peaks has O(NlgN) time complexity
+		std::sort( peaks.begin(), peaks.end(), SortLocalMaximaForStrength );
+
+		//evaluate 3 strongest peaks of current transform and report as result
+		size_t thisone = 0;
+		if ( peaks.size() >= 3) {
+			thisone = peaks.size()-1;
+			results[trsfrm].max1 = make_pair(peaks.at(thisone).position, peaks.at(thisone).strength); //1 strongest
+			thisone = peaks.size()-2;
+			results[trsfrm].max2 = make_pair(peaks.at(thisone).position, peaks.at(thisone).strength); //2 strongest
+			thisone = peaks.size()-3;
+			results[trsfrm].max3 = make_pair(peaks.at(thisone).position, peaks.at(thisone).strength); //3 strongest
+		}
+		else {
+			results[trsfrm].max1 = make_pair(F32MX,F32MX);
+			results[trsfrm].max2 = make_pair(F32MX,F32MX);
+			results[trsfrm].max3 = make_pair(F32MX,F32MX);
+		}
+
+		dumpsummary.push_back( results[trsfrm] );
+	} //evaluate result of the next elevation / azimuth
+
+	//##MK::for low values of n it might be potentially more efficient to take -1.f*strength and to nth_element
+
+	res.back().FFTSummary = diary;
+}
+*/
+
+
+aptcrystHdl::aptcrystHdl()
+{
+	owner = NULL;
+	probehere = cuboidgrid3d();
+}
+
+
+aptcrystHdl::~aptcrystHdl()
+{
+	//do not delete owner, only backreference
+}
+
+
+void aptcrystHdl::compute_crystallography_definegrid()
+{
+	//define a grid of cuboidal cells at which vertices we conduct V. J. Araullo-Peters et al., 2015 technique to identify crystallographic data
+	probehere.binwidths = p3d( 	Settings::SamplingGridBinWidthX,
+								Settings::SamplingGridBinWidthY,
+								Settings::SamplingGridBinWidthZ );
+	probehere.ve = owner->sp->tip;
+	probehere.ve.scale();
+	p3d cxyz = probehere.ve.center();
+
+	cout << "Tip center " << cxyz << endl;
+
+	//MK::grid is defined symmetric about world coordinate z axis
+	//##MK::dirty debugging
+	probehere.gridcells = p6i(
+			static_cast<int>(floor((probehere.ve.xmi-cxyz.x)/probehere.binwidths.x)),
+			static_cast<int>(ceil((probehere.ve.xmx-cxyz.x)/probehere.binwidths.x)),
+			static_cast<int>(floor((probehere.ve.ymi-cxyz.y)/probehere.binwidths.y)),
+			static_cast<int>(ceil((probehere.ve.ymx-cxyz.y)/probehere.binwidths.y)),
+			static_cast<int>(floor((probehere.ve.zmi-cxyz.z)/probehere.binwidths.z)),
+			static_cast<int>(ceil((probehere.ve.zmx-cxyz.z)/probehere.binwidths.z))  );
+
+	//##MK::nicify implementation of the grid definitions
+	for( int z = probehere.gridcells.zmi; z <= probehere.gridcells.zmx; ++z) {
+		for( int y = probehere.gridcells.ymi; y <= probehere.gridcells.ymx; ++y) {
+			for( int x = probehere.gridcells.xmi; x <= probehere.gridcells.xmx; ++x) {
+				p3d p = probehere.where( x, y, z);
+				if ( p.x < (F32MX-EPSILON) && p.y < (F32MX-EPSILON) && p.z < (F32MX-EPSILON) ) {
+					//cout << "-->Adding point " << p << endl;
+					samplingpoints.push_back( p );
+				}
+			}
+		}
+	}
+
+	cout << "APTCrystallography Vic's method grid defined" << endl;
+	cout << probehere << endl;
+	cout << "Number of samplingpoints " << samplingpoints.size() << endl;
+
+	//define which elevation/azimuth pairs to sample for every point
+	for( apt_real e = Settings::ElevationAngleMin; e <= Settings::ElevationAngleMax; e += Settings::ElevationAngleIncr )
+		for ( apt_real a = Settings::AzimuthAngleMin; a <= Settings::AzimuthAngleMax; a += Settings::AzimuthAngleIncr )
+			elevazimpairs.push_back( p2d(e,a) );
+
+	cout << "APTCrystallography Vic's method elevation/azimuth pairs to test defined" << endl;
+	cout << "Number of pairs to test per materialpoint " << elevazimpairs.size() << endl;
+}
+
+
+void aptcrystHdl::compute_crystallography_vicsmethod()
+{
+	double tic = MPI_Wtime();
+
+	compute_crystallography_definegrid();
+
+	//##MK::change so that threads work primarily on points in their own region
+	#pragma omp parallel
+	{
+		double mytic = omp_get_wtime();
+
+		int mt = omp_get_thread_num();
+		int nt = omp_get_num_threads();
+
+		#pragma omp master
+		{
+			for( int thr = MASTER; thr < nt; thr++ ) {
+				workers.push_back( NULL);
+			}
+		}
+		//necessary as otherwise write back conflict on workers from threads
+		#pragma omp barrier
+
+		//setup threadlocal worker which use threadlocal memory
+		crystindexer* thrindexer = NULL;
+		try {
+			thrindexer = new crystindexer;
+		}
+		catch (bad_alloc &mecroak) {
+			//##MK::#####
+		}
+
+		//no workers backreference holder can safely be modified by current thread
+		//MK::pointer will point to thread-locally allocated memory
+		#pragma omp critical
+		{
+			workers.at(mt) = thrindexer;
+		}
+
+		thrindexer->configure();
+
+		apt_real R = thrindexer->info.R;
+		apt_real RSQR = SQR(R);
+
+		//get access to a trihull skip samplingpoints if there are not deep enough in tip volume
+		//to get full spherical environment/ROI of radius R
+		Tree* mylinkedbvh = owner->surf->bvh;
+
+		//execute cooperative processing of samplinggridpoints
+		#pragma omp for schedule(dynamic,1) nowait
+		for( auto it = samplingpoints.begin(); it != samplingpoints.end(); ++it ) {
+
+			AABB e_aabb( 	trpl(it->x-R, it->y-R, it->z-R),
+							trpl(it->x+R, it->y+R, it->z+R) );
+
+			vector<unsigned int> triangle_cand = mylinkedbvh->query( e_aabb ); //MK::assure that this is read only ##MK future improve for better locality multiple Rtrees
+
+			if ( triangle_cand.size() == 0 ) {
+
+				//no candidates so far enough from tip surface to compute unbiased ROI
+				//perform analysis per single point
+				//define a measurement grid
+				p3dm1 probesite = p3dm1(it->x, it->y, it->z, UNKNOWNTYPE);
+
+				//check if point is sufficiently deep enough in tip volume use owner->surf triangle tree for this
+				//test if bounding box about spherical inspection volume cuts any triangle or not
+				//MK::strictly speaking this is conversatively strong, all triangles might protrude into aabb3d but not cut the sphere
+				//however, setting yourself stricter aims is not a bad thing
+
+				//find candidate atoms in spherical environment
+				//each member in the team reads details of specific region and initializes threadlocal comparator variables
+				//find in which thread region the point is and candidate points
+				vector<p3dm1> neighbors3dm1;
+				//scan region about this point to find neighboring candidates using KDtree O(lgN)
+				for( int thr = MASTER; thr < nt; thr++ ) {
+					threadmemory* currentregiondata = owner->sp->db.at(thr);
+					vector<p3dm1> const & theseions = currentregiondata->ionpp3_kdtree;
+					kd_tree* curr_kauri = currentregiondata->threadtree;
+					curr_kauri->range_rball_noclear_nosort_p3d( probesite, theseions, RSQR, neighbors3dm1 );
+				}
+
+				if ( neighbors3dm1.size() > 0 ) { //if any, go to next point, if some make angular space sweeping + histogramming + FFT
+
+					thrindexer->res.push_back( vics_materialpoint_result( p3d(it->x, it->y, it->z) ) );
+
+					//precompute difference vectors in preparation for d = dot(n,(p-po)) were po is here and p the elements in neighbors3dm1
+					vector<d3d> distvec;
+					for(auto jt = neighbors3dm1.begin(); jt != neighbors3dm1.end(); ++jt) { //O(n)
+						distvec.push_back( d3d(jt->x - it->x, jt->y - it->y, jt->z - it->z) );
+					}
+					/*//##MK::bSIMD
+					vector<float> distvec;
+					distvec.reserve( 3*neighbors3dm1.size() ); //three coordinate values per point
+					for(auto jt = neighbors3dm1.begin(); jt != neighbors3dm1.end(); ++jt) {
+						distvec.push_back(static_cast<float>(jt->x - it->x));
+						distvec.push_back(static_cast<float>(jt->y - it->y));
+						distvec.push_back(static_cast<float>(jt->z - it->z));
+					}*/
+
+					//perform analysis sample elevation/azimuth space for one point in reconstruction space
+					thrindexer->vicsmethod_core_incrementalfft2( *it, distvec ); //N_elev*N_azi*O(NlgN) time complexity
+					//thrindexer->vicsmethod_core_batchfft_simd( *it, distvec );
+				}
+				//do not report for voids in dataset
+
+			} //next samplingpoint
+			else {
+				/*#pragma omp critical
+				{
+					cout << "Samplingpoint " << it->x << ";" << it->y << ";" << it->z << " is too close to dataset boundary for being unbiased" << "\n";
+				}*/
+			}
+
+		} //next sampling point
+		#pragma omp barrier
+
+		double mytoc = omp_get_wtime();
+		#pragma omp critical
+		{
+			cout << "Thread " << mt << " finished atom probe crystallography took " << (mytoc-mytic) << " seconds" << endl;
+		}
+	} //end of parallel region
+
+
+	double toc = MPI_Wtime();
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "ExtractCrystallographyAraullo", APT_UTL, APT_IS_PAR, mm, tic, toc);
+	cout << "Conducted multithreaded AtomProbeCrystallography analysis in " << (toc-tic) << " seconds" << endl;
+}
+
+
+void aptcrystHdl::report_crystallography_results()
+{
+	double tic = MPI_Wtime();
+
+	string fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".APTCrystalloPointWiseResults.csv";
+	ofstream tlog;
+	tlog.open( fn.c_str() );
+
+//	tlog << "ThreadID;X;Y;Z;Elevation;Azimuth;FFTAllocYes;FFTPlacementYes;FFTInitYes;FFTCompYes;FFTFreeYes;Bin1;SignalStrength1;Bin2;SignalStrength2;Bin3;SignalStrength3\n";
+//	tlog << ";nm;nm;nm;rad;rad;bool;bool;bool;bool;bool;1;##;1;##;1;##\n";
+//	tlog << "ThreadID;X;Y;Z;Elevation;Azimuth;FFTAllocYes;FFTPlacementYes;FFTInitYes;FFTCompYes;FFTFreeYes;Bin1;SignalStrength1;Bin2;SignalStrength2;Bin3;SignalStrength3\n";
+
+	tlog << "ThreadID;X;Y;Z;Elevation;Azimuth;Bin1;SignalStrength1;Bin2;SignalStrength2;Bin3;SignalStrength3\n";
+	tlog << "1;nm;nm;nm;rad;rad;1;a.u.;1;a.u.;1;a.u.\n";
+	tlog << "ThreadID;X;Y;Z;Elevation;Azimuth;Bin1;SignalStrength1;Bin2;SignalStrength2;Bin3;SignalStrength3\n";
+
+	tlog << setprecision(8);
+	for ( size_t thr = 0; thr < workers.size(); ++thr ) {
+		for ( auto it = workers.at(thr)->res.begin(); it != workers.at(thr)->res.end(); ++it ) {
+			for ( auto jt = it->ElevAzimTblSummary.begin(); jt != it->ElevAzimTblSummary.end(); ++jt ) {
+				tlog << thr << ";" << it->MatPointPos.x << ";" << it->MatPointPos.y << ";" << it->MatPointPos.z;
+				tlog << ";" << jt->elevation << ";" << jt->azimuth;
+				//tlog << ";" << jt->fft_allc_success << ";" << jt->fft_plac_success;
+				//tlog << ";" << jt->fft_init_success << ";" << jt->fft_comp_success << ";" << jt->fft_free_success;
+				tlog << ";" << jt->max1.first << ";" << jt->max1.second;
+				tlog << ";" << jt->max2.first << ";" << jt->max2.second;
+				tlog << ";" << jt->max3.first << ";" << jt->max3.second << "\n";
+			}
+			//free resources
+			//it->ElevAzimTblSummary = vector<vicsresult>();
+		}
+	}
+
+	tlog.flush();
+	tlog.close();
+
+	fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".APTCrystalloGridSummary.csv";
+	ofstream slog;
+	slog.open( fn.c_str() );
+
+	slog << "ThreadID;X;Y;Z;SuccessfulFFTs;FailedFFTs;NumberOfIons\n";
+	slog << ";nm;nm;nm;1;1;1\n";
+	slog << "ThreadID;X;Y;Z;SuccessfulFFTs;FailedFFTs;NumberOfIons\n";
+
+	for ( size_t thr = 0; thr < workers.size(); ++thr ) {
+		for ( auto it = workers.at(thr)->res.begin(); it != workers.at(thr)->res.end(); ++it ) {
+			slog << thr << ";" << it->MatPointPos.x << ";" << it->MatPointPos.y << ";" << it->MatPointPos.z;
+			slog << ";" << it->FFTSummary.nFFTsSuccess << ";" << it->FFTSummary.nFFTsFailed;
+			slog << ";" << it->FFTSummary.nIons << "\n";
+		}
+	}
+
+	slog.flush();
+	slog.close();
+
+	double toc = MPI_Wtime();
+	//memory is still high because all intermediate crystallography results still there
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "ReportCrystallographyAraullo", APT_UTL, APT_IS_SEQ, mm, tic, toc);
+	cout << "Wrote AtomProbeCrystallography results file in " << (toc-tic) << " seconds" << endl;
+}
+
+
+void aptcrystHdl::report_crystallography_results2()
+{
+	double tic = MPI_Wtime();
+
+	int status = 0;
+	//report global cloud of elevation/azimuth pairs PARAPROBE_CRYSTALLO_ELEVAZIMMETA
+	vector<float> wfbuf;
+	wfbuf.resize(2*elevazimpairs.size()); //total number of elements 1E5-1E6 a 2*4B so <=8MB
+	size_t i = 0;
+	for( i = 0; i < elevazimpairs.size();  ) {
+		wfbuf[2*i+0] = elevazimpairs[i].x;
+		wfbuf[2*i+1] = elevazimpairs[i].y; //xy columns each pair a row
+		i++;
+	}
+	h5iometa ifo = h5iometa( PARAPROBE_CRYSTALLO_ELEVAZIMMETA, elevazimpairs.size(), 2 );
+	status = owner->owner->crysth5Hdl.create_contiguous_matrix_f32le( ifo );
+	h5offsets offs = h5offsets( 0, elevazimpairs.size(), 0, 2, elevazimpairs.size(), 2);
+	status = owner->owner->crysth5Hdl.write_contiguous_matrix_f32le_hyperslab( ifo, offs, wfbuf );
+
+	//report sampling material point cloud PARAPROBE_CRYSTALLO_MATPOINTMETA
+	size_t NumberOfPointsWithResults = 0;
+	for ( size_t thr = 0; thr < workers.size(); ++thr ) {
+		NumberOfPointsWithResults += workers.at(thr)->res.size();
+	}
+	wfbuf.resize(3*NumberOfPointsWithResults); //total number of elements 5E6 a 3*4B <= 60MB
+	i = 0;
+	for( size_t thr = 0; thr < workers.size(); ++thr ) {
+		for( auto it = workers.at(thr)->res.begin(); it != workers.at(thr)->res.end(); ++it ) {
+			wfbuf[i+0] = it->MatPointPos.x;
+			wfbuf[i+1] = it->MatPointPos.y;
+			wfbuf[i+2] = it->MatPointPos.z;
+			i = i + 3;
+		}
+	}
+	ifo = h5iometa( PARAPROBE_CRYSTALLO_MATPOINTXYZ, NumberOfPointsWithResults, 3 );
+	status = owner->owner->crysth5Hdl.create_contiguous_matrix_f32le( ifo );
+	offs = h5offsets( 0, NumberOfPointsWithResults, 0, 3, NumberOfPointsWithResults, 3 );
+	status = owner->owner->crysth5Hdl.write_contiguous_matrix_f32le_hyperslab( ifo, offs, wfbuf );
+	wfbuf.clear();
+
+	vector<unsigned int> wuibuf;
+	wuibuf.resize(4*NumberOfPointsWithResults); //total number of elements 5E6 a 4*4B so <= 80MB
+	i = 0;
+	for( size_t thr = 0; thr < workers.size(); ++thr ) {
+		for( auto it = workers.at(thr)->res.begin(); it != workers.at(thr)->res.end(); ++it ) {
+			wuibuf[i+0] = it->FFTSummary.threadID;
+			wuibuf[i+1] = it->FFTSummary.nFFTsFailed;
+			wuibuf[i+2] = it->FFTSummary.nFFTsSuccess;
+			wuibuf[i+3] = it->FFTSummary.nIons;
+			i = i + 4;
+		}
+	}
+	ifo = h5iometa( PARAPROBE_CRYSTALLO_MATPOINTMETA, NumberOfPointsWithResults, 4 );
+	status = owner->owner->crysth5Hdl.create_contiguous_matrix_u32le( ifo );
+	offs = h5offsets( 0, NumberOfPointsWithResults, 0, 4, NumberOfPointsWithResults, 4 );
+	status = owner->owner->crysth5Hdl.write_contiguous_matrix_u32le_hyperslab( ifo, offs, wuibuf );
+	wuibuf.clear();
+
+	//report individual material point results
+	if ( Settings::IOCrystallography == true ) {
+		size_t pid = 0;
+		for( size_t thr = 0; thr < workers.size(); ++thr ) {
+			for( auto it = workers.at(thr)->res.begin(); it != workers.at(thr)->res.end(); ++it ) {
+				//fill buffer with results for a single material point dump to file next one
+				i = 0;
+				wfbuf.resize(6*it->ElevAzimTblSummary.size());
+				for ( auto jt = it->ElevAzimTblSummary.begin(); jt != it->ElevAzimTblSummary.end(); ++jt ) {
+					wfbuf[i+0] = jt->max1.first;
+					wfbuf[i+1] = jt->max1.second;
+					wfbuf[i+2] = jt->max2.first;
+					wfbuf[i+3] = jt->max2.second;
+					wfbuf[i+4] = jt->max3.first;
+					wfbuf[i+5] = jt->max3.second;
+					i = i + 6;
+				}
+				string fwslash = "/";
+				string dsfn = PARAPROBE_CRYSTALLO_THREESTRONGEST + fwslash + to_string(pid);
+				ifo = h5iometa( dsfn, it->ElevAzimTblSummary.size(), 6 );
+				status = owner->owner->crysth5Hdl.create_contiguous_matrix_f32le( ifo );
+				offs = h5offsets( 0, it->ElevAzimTblSummary.size(), 0, 6, it->ElevAzimTblSummary.size(), 6 );
+				status = owner->owner->crysth5Hdl.write_contiguous_matrix_f32le_hyperslab( ifo, offs, wfbuf );
+				//bookkeeping for next dataset
+				pid++;
+			}
+		}
+		wfbuf.clear();
+	}
+
+	double toc = MPI_Wtime();
+	//memory is still high because all intermediate crystallography results still there
+	memsnapshot mm = owner->owner->tictoc.get_memoryconsumption();
+	owner->owner->tictoc.prof_elpsdtime_and_mem( "ReportHDF5CrystallographyAraullo", APT_IO, APT_IS_SEQ, mm, tic, toc);
+	cout << "Wrote AtomProbeCrystallography results to H5 file in " << (toc-tic) << " seconds" << endl;
+}
+
+
+void aptcrystHdl::delete_crystallography_results()
+{
+	for(size_t i = 0; i < workers.size(); i++) {
+		delete workers.at(i);
+	}
+}
+
 
 solverHdl::solverHdl()
 {
 	nevt = 0;
 
 	myRank = MASTER;
-	nRanks = SINGLE_PROCESS;
+	nRanks = SINGLEPROCESS;
 }
 
 
@@ -4522,6 +6634,7 @@ bool solverHdl::generate_synthetic_tip()
 	normal_distribution<apt_real> gaussian_y(0.f, Settings::SpatResolutionSigmaY );
 	normal_distribution<apt_real> gaussian_z(0.f, Settings::SpatResolutionSigmaZ );
 
+
 	//MK::on the fly addition of ions from crystallographic motif to prevent building unnecessary copies
 	size_t placed = 0;
 	//apt_real placed = 0.f;
@@ -4558,20 +6671,38 @@ bool solverHdl::generate_synthetic_tip()
 							continue;
 						else
 							cout << placed << endl;
-
-						/*if ( placed * total < progress )
-							continue;
-						else {
-							cout << placed * total << " % placed" << endl;
-							progress += 1.f;
-						}*/
 					}
 				}
 			}
 		}
 	}
 
+/*
+	//##MK::naive random point process carving
+	size_t placed = 0;
+	for( size_t i = 0; i < Settings::NumberOfAtoms; ++i ) {
+		p3d ap = p3d(	unifrnd(dice) * tipgeometry.mybox.xsz + tipgeometry.mybox.xmi,
+						unifrnd(dice) * tipgeometry.mybox.ysz + tipgeometry.mybox.ymi,
+						unifrnd(dice) * tipgeometry.mybox.zsz + tipgeometry.mybox.zmi );
+
+		if ( tipgeometry.is_inside( ap ) == true ) {
+			//no-accounting for limited detection efficiency
+			//no-accounting for finite and anisotropic spatial resolution
+			apt_real mass2charge = dilute.get_random_speci_mq();
+			rawdata_alf.add_atom( pos(ap.x, ap.y, ap.z, mass2charge) );
+
+			placed++;
+			if ( placed % 1000000 != 0 )
+				continue;
+			else
+				cout << placed << endl;
+		}
+	}
+*/
+
 	reporting( "All tip atoms were placed");
+
+	//##MK  ##potentially deleting the data? rawdata_alf.write_occupancy_raw();
 
 	//add spherical precipitates randomly placed, MK::MIND THAT DIMENSIONS IN NANOMETER
 	secondphasemodel ballpark = secondphasemodel(
@@ -4638,7 +6769,8 @@ cout << "Cluster placed cleared/kept/newatoms planned/new atoms placed\t\t" << s
 	}
 
 	toc = MPI_Wtime();
-	tictoc.prof( "GenerateSyntheticTip", APT_UTL, tic, toc);
+	memsnapshot mm = tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "GenerateSyntheticTip", APT_UTL, APT_IS_SEQ, mm, tic, toc);
 	string mess = "Sequential tip synthesis was successful and took " + to_string(toc-tic) + " seconds!";
 	reporting( get_rank(), mess );
 
@@ -4647,10 +6779,12 @@ cout << "Cluster placed cleared/kept/newatoms planned/new atoms placed\t\t" << s
 	if ( Settings::IOReconstruction == true ) { //store generated tip into an HDF5 file
 		tic = MPI_Wtime();
 
-		write_pos_hdf5( rawdata_alf.buckets, Settings::RAWFilenameIn );
+		//##MK::currently switched off
+		//write_pos_hdf5( rawdata_alf.buckets, Settings::RAWFilenameIn );
 
 		toc = MPI_Wtime();
-		tictoc.prof( "WriteSyntheticTipHDF", APT_IO, tic, toc);
+		memsnapshot mm = memsnapshot();
+		tictoc.prof_elpsdtime_and_mem( "WriteSyntheticTipHDF", APT_IO, APT_IS_SEQ, mm, tic, toc);
 		string mess = "Writing synthetic tip to HDF5 was successful and took " + to_string(toc-tic) + " seconds!";
 		reporting( get_rank(), mess );
 	}
@@ -4787,7 +6921,8 @@ bool solverHdl::load_pos_sequentially( const string posfn )
 	delete [] rbuf; rbuf = NULL;
 
 	double toc = MPI_Wtime();
-	tictoc.prof( "POSFileInputWithEndiannessSwop", APT_IO, tic, toc);
+	memsnapshot mm = tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "POSFileInputWithEndiannessSwop", APT_IO, APT_IS_SEQ, mm, tic, toc);
 	string mess = "Sequential binary-based data loading with BE to LE endianness swopping was successful and took " + to_string(toc-tic) + " seconds!";
 	reporting( get_rank(), mess );
 
@@ -4922,7 +7057,8 @@ bool solverHdl::load_epos_sequentially( const string eposfn )
 	delete [] rbuf; rbuf = NULL;
 
 	double toc = MPI_Wtime();
-	tictoc.prof( "EPOSFileInputWithEndiannessSwop", APT_IO, tic, toc);
+	memsnapshot mm = tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "EPOSFileInputWithEndiannessSwop", APT_IO, APT_IS_SEQ, mm, tic, toc);
 	string mess = "Sequential binary-based data loading with BE to LE endianness swopping was successful and took " + to_string(toc-tic) + " seconds!";
 	reporting( get_rank(), mess );
 
@@ -4963,7 +7099,7 @@ bool solverHdl::load_hdf5_sequentially( const string h5fn )
 	//next get data layout of XYZMQ within H5 file
 	dsetid = H5Dopen2( fileid, "/XYZMQ", H5P_DEFAULT );
 	hid_t fspcid = H5Dget_space(dsetid);
-	int rank = H5Sget_simple_extent_ndims(fspcid);
+	//int rank = H5Sget_simple_extent_ndims(fspcid);
 	hsize_t rdims[2];
 	status = H5Sget_simple_extent_dims(fspcid, rdims, NULL);
 
@@ -5089,7 +7225,8 @@ cout << "--->dump AtomsToReadCurr\t\t" << AtomsToReadCurr << endl;
 	status = H5Fclose(fileid);
 
 	double toc = MPI_Wtime();
-	tictoc.prof( "HDF5FileInputIntoPOS", APT_IO, tic, toc);
+	memsnapshot mm = memsnapshot();
+	tictoc.prof_elpsdtime_and_mem( "HDF5FileInputIntoPOS", APT_IO, APT_IS_SEQ, mm, tic, toc);
 	string mess = "Sequential HDF5-based data loading was successful and took " + to_string(toc-tic) + " seconds!";
 	reporting( get_rank(), mess );
 
@@ -5204,7 +7341,7 @@ bool solverHdl::identify_ions( void )
 {
 	double tic = MPI_Wtime();
 	//ranges ions based on periodic system fed with range file, if rangefile load failed UNKNOWN type is assigned
-	if ( mypse.read_rangefile(Settings::RRNGFilenameIn) == true ) {
+	if ( mypse.read_rangefile2(Settings::RRNGFilenameIn) == true ) {
 		size_t nb = 0;
 		if ( Settings::SyntheticTips == true )
 				nb = rawdata_alf.buckets.size();
@@ -5270,9 +7407,7 @@ bool solverHdl::identify_ions( void )
 		cout << "Ranging performed, now summarizing..." << endl;
 
 		//report result of the ranging process, i.e. how many ions of which type are unsigned int from [0,MaximumTypeID)
-		vector<size_t> iontype_cnt;
-		for(unsigned int i = 0; i < mypse.get_maxtypeid(); i++)
-			iontype_cnt.push_back( 0L );
+		vector<size_t> iontype_cnt = vector<size_t>( mypse.get_maxtypeid(), 0L );
 
 		//Iontypes
 		for(size_t i = 0; i < rawdata_iontype.size(); ++i) {
@@ -5295,10 +7430,43 @@ bool solverHdl::identify_ions( void )
 		cout << "Ions in total\t\t" << total << endl;
 
 		double toc = MPI_Wtime();
-		tictoc.prof( "RRNGFileInputWithRanging", APT_RRR, tic, toc);
+		memsnapshot mm = tictoc.get_memoryconsumption();
+		tictoc.prof_elpsdtime_and_mem( "RRNGFileInputWithRanging", APT_RRR, APT_IS_SEQ, mm, tic, toc);
 		return true;
 	}
 	return false;
+}
+
+
+bool solverHdl::generate_hdf5_resultsfile()
+{
+	//MK::initialize a simulation ID specific output file
+	//MK::the key idea of PARAPROBE analyses is to have one set of measured file
+	//rawdata RHIT/HITS, Cameca LEAP processed data APT, and user-postprocessed files bundling in HDF5
+	//h5iometa info = h5iometa();
+	int status = 0;
+	string prefix = "PARAPROBE.SimID." + to_string(Settings::SimID);
+	string fn_res = prefix + ".Results.h5";
+	string fn_clu = prefix + ".Clustering.h5";
+	string fn_cry = prefix + ".Crystallography.h5";
+
+	if ( resultsh5Hdl.create_paraprobe_results_file( fn_res ) != WRAPPED_HDF5_SUCCESS )
+		return false;
+	if ( Settings::ClusteringTask != E_NOCLUST ) {
+		if ( clusth5Hdl.create_paraprobe_clust_file( fn_clu ) != WRAPPED_HDF5_SUCCESS )
+			return false;
+	}
+
+	if ( Settings::ExtractCrystallographicInfo != E_NOCRYSTALLO ) {
+		if ( crysth5Hdl.create_paraprobe_cryst_file( fn_cry ) != WRAPPED_HDF5_SUCCESS )
+			return false;
+	}
+
+	//fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".VoroTess.h5";
+	//if ( voronoih5Hdl.create_paraprobe_voronoi_file( fn ) != WRAPPED_HDF5_SUCCESS )
+	//	return false;
+
+	return true;
 }
 
 
@@ -5339,7 +7507,8 @@ void solverHdl::delete_rawdata( void )
 	//##MK::do not reset to zero nevt = 0;
 
 	double toc = MPI_Wtime();
-	tictoc.prof( "RawdataDestruction", APT_UTL, tic, toc);
+	memsnapshot mm = memsnapshot();
+	tictoc.prof_elpsdtime_and_mem( "RawdataDestruction", APT_UTL, APT_IS_SEQ, mm, tic, toc);
 }
 
 
@@ -5443,7 +7612,8 @@ void solverHdl::initialize_thread_binding()
 	}
 
 	double toc = MPI_Wtime();
-	tictoc.prof( "InitNUMABinding", APT_UTL, tic, toc);
+	memsnapshot mm = memsnapshot();
+	tictoc.prof_elpsdtime_and_mem( "InitNUMABinding", APT_UTL, APT_IS_SEQ, mm, tic, toc);
 }
 
 /*

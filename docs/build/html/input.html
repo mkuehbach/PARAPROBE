@@ -50,22 +50,34 @@
             
   <div class="section" id="xml-control-file-settings">
 <h1><strong>XML Control File Settings</strong><a class="headerlink" href="#xml-control-file-settings" title="Permalink to this headline">¶</a></h1>
-<p>The entire datamining is controlled by a single control parameter settings XML file.</p>
+<p>The entire data mining is instructed through a single XML control settings file.</p>
+<div class="figure">
+<img alt="_images/PARAPROBEWorkflow_02.png" src="_images/PARAPROBEWorkflow_02.png" />
+</div>
+<div class="section" id="questions">
+<h2>Questions?<a class="headerlink" href="#questions" title="Permalink to this headline">¶</a></h2>
+<p>If in doubt feel free to <a class="reference external" href="https://bigmax.iwww.mpg.de/39151/bigmax-software-engineering-consultant">ask</a> <a class="reference external" href="https://www.mpie.de/person/51206/2656491">me</a></p>
+<blockquote>
+<div></div></blockquote>
+</div>
 <div class="section" id="input">
 <h2>Input<a class="headerlink" href="#input" title="Permalink to this headline">¶</a></h2>
 <div class="line-block">
 <div class="line"><strong>InputFileformat</strong></div>
 <div class="line-block">
 <div class="line">Determines where the rawdata come from</div>
-<div class="line">0, debug, nothing</div>
 <div class="line">1, POS</div>
 <div class="line">2, EPOS</div>
-<div class="line">3, HDF5 use only to reread existent synthetic dataset and ReconstructionAlgorithm 2</div>
-<div class="line">4, synthetic dataset</div>
+<div class="line">3, HDF5</div>
+</div>
+</div>
+<div class="line-block">
+<div class="line-block">
+<div class="line">4 Generate synthetic single-crystalline tip</div>
 </div>
 <div class="line"><strong>RAWFilenameIn</strong></div>
 <div class="line-block">
-<div class="line">Specifies the input file filename an ending is necessary. It can be .pos or .epos</div>
+<div class="line">Specifies the filename and ending for InputFileformat modes 1, 2, 3, and 4</div>
 </div>
 </div>
 </div>
@@ -74,7 +86,7 @@
 <div class="line-block">
 <div class="line"><strong>AnalysisMode</strong></div>
 <div class="line-block">
-<div class="line">0, default</div>
+<div class="line">1, work in reconstruction space</div>
 </div>
 </div>
 </div>
@@ -84,19 +96,20 @@
 <div class="line"><strong>ReconstructionAlgorithm</strong></div>
 <div class="line-block">
 <div class="line">Determines the location of the ions in the reconstruction space</div>
-<div class="line">0, no reconstruction</div>
-<div class="line">1, accept x,y,z from synthetic dataset demands InputFileformat 1</div>
-<div class="line">2, accept x,y,z coordinates from the POS file</div>
-<div class="line">3, accept x,y,z coordinates from the EPOS file</div>
-<div class="line">4, perform common Bas et al. reconstruction based on EPOS file</div>
+<div class="line">1, accept x,y,z from synthetic dataset demands InputFileformat 5</div>
+<div class="line">2, accept x,y,z from the POS file as reconstructed already</div>
+<div class="line">3, accept x,y,z from the EPOS file as reconstructed already</div>
+<div class="line">4, perform common Barr et al. reconstruction based on EPOS file</div>
 </div>
 <div class="line"><strong>IdentifyIonType</strong></div>
 <div class="line-block">
-<div class="line">If other than 0, ranging is performed, if invalid range file or set to 0 all ions are assigned a default type</div>
+<div class="line">If other than 0, a ranging is performed based on rrng range file</div>
+<div class="line">Else, a default type is assigned to all ions</div>
 </div>
 <div class="line"><strong>RRNGFilenameIn</strong></div>
 <div class="line-block">
-<div class="line">Specifies a rrng-format-conformant range file with which to convert mass-to-charge to ion type aka ranging</div>
+<div class="line">Specifies a RRNG format conformant range file with pieces of information</div>
+<div class="line">for mapping mass-to-charge values to ion types (ranging)</div>
 </div>
 </div>
 </div>
@@ -106,46 +119,67 @@
 <div class="line"><strong>SurfaceReconstructionType</strong></div>
 <div class="line-block">
 <div class="line">Determines whether or not and if so which tip surface reconstruction model to apply</div>
-<div class="line">0, no surface reconstruction</div>
-<div class="line">1, alpha shape using the CGAL library and its optimal alpha value to get a solid to report an alpha shape</div>
+<div class="line">1, alpha shape using the CGAL library</div>
 <div class="line">4, read existent triangle hull from SurfaceFilenameIn file</div>
 </div>
 <div class="line"><strong>SurfaceFilenameIn</strong></div>
 <div class="line-block">
-<div class="line">Specifies a VTK file containing tip surface triangle hull information when using option <strong>SurfaceReconstructionType</strong> 4</div>
+<div class="line">Specifies a VTK file which contains the surface triangulation</div>
+</div>
+<div class="line"><strong>AlphaShapeAlphaValueChoice</strong></div>
+<div class="line-block">
+<div class="line">CGAL setting to specify which alpha value is used to triangulate the shape</div>
+<div class="line">0, the smallest alpha to get a solid through</div>
+<div class="line">1, the value which CGAL considers to be the optimal</div>
 </div>
 </div>
 </div>
 <div class="section" id="analysis-tasks">
 <h2>Analysis Tasks<a class="headerlink" href="#analysis-tasks" title="Permalink to this headline">¶</a></h2>
 <div class="line-block">
+<div class="line"><strong>AnalysisCrystallographicInfo</strong></div>
+<div class="line-block">
+<div class="line">1, perform V. J. Araullo-Peters et al. method to extract</div>
+<div class="line">pointwise crystallographic signal by analyzing periodicity</div>
+<div class="line">in histogram of projected point to plane distances using</div>
+<div class="line">discrete Fourier transforms</div>
+<div class="line">Computing the FFT demands linking against the IntelMKL library</div>
+</div>
+</div>
+<div class="line-block">
 <div class="line"><strong>AnalysisSpatDistrType</strong></div>
 <div class="line-block">
 <div class="line">Specifies which descriptive spatial statistics should be computed.</div>
-<div class="line">Multiple single character numbers can be provided to instruct multiple analyses, eg 42 will do knearest and nearest neighbor</div>
-<div class="line">0, nothing</div>
+<div class="line">Multiple single character numbers can be provided to instruct</div>
+<div class="line">multiple analyses, eg 415 instructs multiple k nearest,</div>
+<div class="line">radial distribution function, and 2-point statistics,</div>
+<div class="line">The order of the numeral keys does not matter</div>
 <div class="line">1, radial distribution function</div>
 <div class="line">2, nearest neighbor</div>
 <div class="line">3, Ripley K</div>
-<div class="line">4, k nearest neighbors</div>
-<div class="line">5, multiple k nearest neighbors</div>
+<div class="line">4, multiple k nearest neighbors</div>
+<div class="line">5, 2-point spatial statistics to knearest neighbors in SpatStatRadiusMax</div>
+<div class="line">6, discrete ion type specific numeral accounting</div>
+</div>
+</div>
+<div class="line-block">
+<div class="line"><strong>AnalysisVolumeTessellation</strong></div>
+<div class="line-block">
+<div class="line">1, Computes a volume Voronoi tessellation to the entire dataset</div>
 </div>
 </div>
 <div class="line-block">
 <div class="line"><strong>AnalysisClusteringType</strong></div>
 <div class="line-block">
-<div class="line">Specifies which clustering algoritm to use</div>
-<div class="line">0, nothing</div>
-<div class="line">2, maximum separation method</div>
+<div class="line">Specifies which clustering method to use</div>
+<div class="line">1, maximum separation method</div>
 </div>
 </div>
 </div>
-<div class="section" id="bas-et-al-reconstruction-parameter">
-<h2>Bas et al reconstruction parameter<a class="headerlink" href="#bas-et-al-reconstruction-parameter" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="barr-et-al-reconstruction-parameter">
+<h2>Barr et al reconstruction parameter<a class="headerlink" href="#barr-et-al-reconstruction-parameter" title="Permalink to this headline">¶</a></h2>
 <div class="line-block">
-<div class="line-block">
-<div class="line">Optional when using reconstruction mode Bas et al</div>
-</div>
+<div class="line">Parameter in the Barr et al. reconstruction protocol</div>
 <div class="line"><strong>FlightLength</strong></div>
 <div class="line-block">
 <div class="line">In nanometer, instrument dependent</div>
@@ -156,43 +190,97 @@
 </div>
 <div class="line"><strong>EvaporationField</strong></div>
 <div class="line-block">
-<div class="line">In volt per nanometer</div>
+<div class="line">In Volt per nanometer</div>
 </div>
 <div class="line"><strong>DetEffMin</strong></div>
 <div class="line"><strong>DetEffIncr</strong></div>
 <div class="line"><strong>DetEffMax</strong></div>
 <div class="line-block">
-<div class="line">Specifies range of detector efficiency minimum, increment, maximum, respectively, physically restricted on (0,1)</div>
+<div class="line">Specifies range of detector efficiency minimum, increment,</div>
+<div class="line">maximum values, respectively, physically restricted on (0,1)</div>
 </div>
 <div class="line"><strong>KFMin</strong></div>
 <div class="line"><strong>KFIncr</strong></div>
 <div class="line"><strong>KFMax</strong></div>
 <div class="line-block">
-<div class="line">Specifies range of kf factor minimum, increment, maximum, respectively</div>
+<div class="line">Specifies range of kf field factor minimum, increment, maximum</div>
+<div class="line">values, respectively</div>
 </div>
 <div class="line"><strong>ICFMin</strong></div>
 <div class="line"><strong>ICFIncr</strong></div>
 <div class="line"><strong>ICFMax</strong></div>
 <div class="line-block">
-<div class="line">Specifies range of ICF factor</div>
+<div class="line">Specifies range of image compression factor ICF factor</div>
 </div>
 </div>
 </div>
-<div class="section" id="smart-pruning">
-<h2>Smart pruning<a class="headerlink" href="#smart-pruning" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="smart-pruning-prior-surface-reconstruction">
+<h2>Smart pruning prior surface reconstruction<a class="headerlink" href="#smart-pruning-prior-surface-reconstruction" title="Permalink to this headline">¶</a></h2>
 <div class="line-block">
-<div class="line">A technique to identify ions close to the tip surface and dominant poles to avoid downsampling but speed up surface reconstruction.</div>
+<div class="line">A technique to identify ions close to the tip surface to avoid downsampling yet speed up the alpha shape surface triangulation</div>
 <div class="line"><strong>AdvIonPruningBinWidthMin</strong></div>
 <div class="line"><strong>AdvIonPruningBinWidthIncr</strong></div>
 <div class="line"><strong>AdvIonPruningBinWidthMax</strong></div>
 <div class="line-block">
-<div class="line">Specifies range of rectangular binning bin width in nanometer with which to smartly prune the ion cloud</div>
-<div class="line">before passing candidate points to CGAL to speed up and perform memory leaner surface reconstruction</div>
+<div class="line">Specifies, in nanometer, the cuboidal binning of the tip volume used</div>
+<div class="line">for pruning all ions too far away from the tip surface prior to passing</div>
+<div class="line">the candidate points to CGAL</div>
+<div class="line">Values should not be smaller than 0.5 nanometer, much larger values will</div>
+<div class="line">reduce pruning efficiency</div>
 </div>
 <div class="line"><strong>DebugComputeDistance</strong></div>
 <div class="line-block">
-<div class="line">0 no distance computation to tip surface triangle hull may introduce bias</div>
-<div class="line">1 exact distance computation to tip surface triangle hull all ions up to SpatStatRadiusMax from the surface</div>
+<div class="line">0 no distance computation to tip surface triangle hull,</div>
+<div class="line">will introduce bias in spatial statistics and tessellation results</div>
+<div class="line">1 floating point exact distancing for all ions within</div>
+<div class="line">SpatStatRadiusMax to the tip surface triangle hull, will eliminate bias</div>
+<div class="line">owing to ions too close to the dataset boundary whose region of interest</div>
+<div class="line">extends into vacuum and therefore contains comparably fewer ions than</div>
+<div class="line">for ions deeply embedded in the tip volume</div>
+</div>
+</div>
+</div>
+<div class="section" id="crystallographic-analysis">
+<h2>Crystallographic analysis<a class="headerlink" href="#crystallographic-analysis" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line">Thread parallelized implementation of V. J. Araullo-Peters et al. reconstruction space crystallographic signal quantification method</div>
+<div class="line"><strong>CrystalloRadiusMax</strong></div>
+<div class="line-block">
+<div class="line">Radius of the region of interest inspection sphere about each material point</div>
+<div class="line">of a sampling grid at which crystallographic signal is mined by scanning</div>
+<div class="line">elevation azimuth space</div>
+</div>
+<div class="line"><strong>SamplingGridBinWidthX</strong></div>
+<div class="line"><strong>SamplingGridBinWidthY</strong></div>
+<div class="line"><strong>SamplingGridBinWidthZ</strong></div>
+<div class="line-block">
+<div class="line">Defining a cuboidal sampling point grid whose vertices define positions</div>
+<div class="line">in the tip volume where crystallographic signal is mined</div>
+</div>
+<div class="line"><strong>ElevationAngleMin</strong></div>
+<div class="line"><strong>ElevationAngleIncr</strong></div>
+<div class="line"><strong>ElevationAngleMax</strong></div>
+<div class="line"><strong>AzimuthAngleMin</strong></div>
+<div class="line"><strong>AzimuthAngleIncr</strong></div>
+<div class="line"><strong>AzimuthAngleMax</strong></div>
+<div class="line-block">
+<div class="line">Defines the resolution of the elevation azimuth angle space scanning about each material point</div>
+</div>
+<div class="line"><strong>CrystalloHistM</strong></div>
+<div class="line-block">
+<div class="line">Defines the power of two exponent of how many projected distance bins are used to compute the histogram</div>
+<div class="line">for which subsequently discrete 1d Fourier transforms are computed</div>
+</div>
+<div class="line"><strong>WindowingMethod</strong></div>
+<div class="line-block">
+<div class="line">0, rectangular window</div>
+<div class="line">1, Kaiser window, using scalar scaling constant WindowingAlpha</div>
+</div>
+<div class="line"><strong>WindowingAlpha</strong></div>
+<div class="line-block">
+<div class="line">Positive scalar scaling constant see J. Kaiser and R. W. Schafer</div>
+<div class="line">IEEE Transactions on Acoustics, Speech and Signal Processing, 28, 1,</div>
+<div class="line">1980, 105-107, 10.1109/TASSP.1980.1163349 for details</div>
 </div>
 </div>
 </div>
@@ -201,25 +289,32 @@
 <div class="line-block">
 <div class="line"><strong>DescrStatTaskCode</strong></div>
 <div class="line-block">
-<div class="line">A semicolon-separated list of string-based codes which analyses on ion types to conduct. Each analysis task, string, requires at least one central ion type string and at least one environment neighboring ion type string both as specified in the rrng rangefile. Multiple central ions in the central ion string can be combined in the analysis against multiple ions in the environment string. For example Al,Al;Ga,Ga will instruct two tasks. The first Al ions against only Al ions as neighbors, the second Gallium against only Gallium. A more complex multiple ion type example is as such AlMn,AlMn;GaMn,GaMn It will instruct in the first analysis to probe Al or Mn as central ions and takes either Al or Mn in the environment, similarly the second Ga or Mn as central against neighboring ions of type either Ga or Mn.</div>
+<div class="line">A semicolon-separated list of string-based ion type codes which specify which analyses on ion types are to be conducted. Each analysis task, string, requires at least one central ion type string separated by a minus sign to at least one neighboring ion type string. The individual substring keys specify individual analyses, each separated off by semicolon. For example the string code Al-Al;Ga-Ga will instruct two tasks. In the first such descriptive spatial statistics task Al is taken as central and probed against Al only neighbors. The second task probes Gallium against Gallium only. It is possible to combine multiple string codes into a semicolon separated set of arbitrary combinations of single and molecular ions. In this case ion type strings for centrals as well as neighbors are separated through comma. For example, the string code Al,Mn-Al,Mn;AlH-Ga,Mn instructs two tasks: the first accepts Al or Mn as central ions and probes against their Al or Mn neighbors. The second takes all aluminium hydride molecular ions or Gallium single ions as centrals and probes against their Gallium or Manganese neighbors.</div>
 </div>
 <div class="line"><strong>SpatStatRadiusMin</strong></div>
 <div class="line"><strong>SpatStatRadiusIncr</strong></div>
 <div class="line"><strong>SpatStatRadiusMax</strong></div>
 <div class="line-block">
-<div class="line">Specifies in nanometer the range of search sphere radii in which to conduct the analyses. Increment needs to be an integer multiple of SpatStatRadiusMax</div>
+<div class="line">Specifies in nanometer the spherical region of interest radius</div>
+<div class="line">in which analyses about the ions are performed.</div>
+<div class="line">Increment needs to be an integer multiple of SpatStatRadiusMax</div>
 </div>
 <div class="line"><strong>SpatStatKNNOrder</strong></div>
 <div class="line-block">
-<div class="line">Specifies k for AnalysisSpatDistrType mode 4, output will use C style reporting i.e. order 1 is reported as 0</div>
+<div class="line">Specifies k for AnalysisSpatDistrType mode 4, output will use</div>
+<div class="line">C style reporting i.e. order 1 is reported as 0</div>
 </div>
 <div class="line"><strong>SpatStatMKNNCode</strong></div>
 <div class="line-block">
-<div class="line">Specifies a semicolon separated list of only non-negative integer values which kth order nearest neighbors should be computed to the central ion, allows to define combinations like 1;2;5;10;100;1000</div>
+<div class="line">Specifies a semicolon separated list of only non-negative integer values</div>
+<div class="line">which kth order nearest neighbors should be computed to the central ion,</div>
+<div class="line">allows to define arbitrary combinations like 1;2;5;10;100;1000,i.e.</div>
+<div class="line">the first, second, fifth, tenth, hundredth, and thousandth nearest neighbor</div>
 </div>
 <div class="line"><strong>SpatStatAdditionalLabelRandomization</strong></div>
 <div class="line-block">
-<div class="line">If set to 1 allows to randomize all ion type labels across point cloud and rerun clustering analysis against, otherwise no randomization done. Applied randomizations are reset after the analysis to not invalidate the data set.</div>
+<div class="line">If set to 1 allows to randomize all ion type labels across point cloud</div>
+<div class="line">and re-run the clustering analysis against, otherwise no randomization is done. |       Applied randomizations are reset after each task to not invalidate the data set.</div>
 </div>
 </div>
 </div>
@@ -234,7 +329,9 @@
 <div class="line"><strong>ClustMaxSepDmaxIncr</strong></div>
 <div class="line"><strong>ClustMaxSepDmaxMax</strong></div>
 <div class="line-block">
-<div class="line">Specifies in nanometer the range and stepping of the Dmax parameter used to perform a set of independent maximum separation clustering analyses with different Dmax values but same Nmin.</div>
+<div class="line">Specifies in nanometer the range and stepping of the Dmax parameter used</div>
+<div class="line">to perform a set of independent maximum separation clustering analyses</div>
+<div class="line">with different Dmax values but same Nmin.</div>
 </div>
 <div class="line"><strong>ClustMaxSepNmin</strong></div>
 <div class="line-block">
@@ -242,13 +339,28 @@
 </div>
 <div class="line"><strong>ClustAPosterioriSpatStat</strong></div>
 <div class="line-block">
-<div class="line">If 1 perform a spatial distribution analysis on the clustered ions after the clustering analysis, this support is in beta stage</div>
+<div class="line">If 1 performs a spatial distribution analysis on the clustered ions after</div>
+<div class="line">the clustering analysis, this support is in beta stage</div>
+</div>
+</div>
+</div>
+<div class="section" id="tessellation-analyses">
+<h2>Tessellation analyses<a class="headerlink" href="#tessellation-analyses" title="Permalink to this headline">¶</a></h2>
+<div class="line-block">
+<div class="line"><strong>SurfaceCellsCarvingRadius</strong></div>
+<div class="line-block">
+<div class="line">This specifies a shell of thickness SurfaceCellsCarvingRadius in nanometer</div>
+<div class="line">in which cells are not computed because they are too close to the tip surface</div>
+<div class="line">to assure that their geometry is unaffected by the discontinuity of</div>
+<div class="line">of the non-periodic finite point cloud</div>
 </div>
 </div>
 </div>
 <div class="section" id="visualization-options">
 <h2>Visualization options<a class="headerlink" href="#visualization-options" title="Permalink to this headline">¶</a></h2>
-<p>If set to value 1 switched on, if set to 0 switched off</p>
+<p>If set to value 1 switched on, if set to 0 switched off
+Some of the output will be written into an HDF5 file. Complementary XDMF files will
+be written for visualization purposes</p>
 <div class="line-block">
 <div class="line"><strong>IOReconstruction</strong></div>
 <div class="line-block">
@@ -256,7 +368,15 @@
 </div>
 <div class="line"><strong>IOTriangulation</strong></div>
 <div class="line-block">
-<div class="line">Write tip surface triangle hull into VTK file</div>
+<div class="line">Write tip surface triangle hull for visualization</div>
+</div>
+<div class="line"><strong>IOTriangulationBVH</strong></div>
+<div class="line-block">
+<div class="line">Write VTK file which visualizes the bounded volume hierarchy used for fast triangle location queries</div>
+</div>
+<div class="line"><strong>IOKDTreePartitioning</strong></div>
+<div class="line-block">
+<div class="line">Write VTK file that visualizes the aggregate of thread local KDTrees into which the ions were partitioned</div>
 </div>
 <div class="line"><strong>IOHKFilteredIons</strong></div>
 <div class="line-block">
@@ -270,12 +390,31 @@
 <div class="line-block">
 <div class="line">Write distance of ions to surface to VTK file</div>
 </div>
+<div class="line"><strong>IOVoronoiDescrStats</strong></div>
+<div class="line-block">
+<div class="line">Report volume and number of faces of each tessellation cell in HDF5 file but not their geometry</div>
+</div>
+<div class="line"><strong>IOVoronoiCellPositions</strong></div>
+<div class="line-block">
+<div class="line">Report 3D positions of each Voronoi cell linked to cell attributes</div>
+</div>
+<div class="line"><strong>IOVoronoiTopoGeom</strong></div>
+<div class="line-block">
+<div class="line">Report also the topology and geometry of every cell.</div>
+<div class="line"><strong>Mind that this takes approximately 100 Byte per cell</strong>, i.e.</div>
+<div class="line">the option may not be feasible to use when working with large tip volumina</div>
+<div class="line">as it will generate Terabyte sized results files!</div>
+</div>
+<div class="line"><strong>IOCrystallography</strong></div>
+<div class="line-block">
+<div class="line">Report results of V. J. Araullo-Peters method of extracting crystallographic signal</div>
+</div>
 </div>
 </div>
 <div class="section" id="synthetic-tip">
 <h2>Synthetic tip<a class="headerlink" href="#synthetic-tip" title="Permalink to this headline">¶</a></h2>
 <p>Parameter specifying geometry and size of synthetic tip. Shape is conical frustum with spherical cap on top and spherical cap cut out at the bottom.
-So far the support for tip geometry is simplistic defining hardcoded single-crystalline pure Al tip with Al3Sc precipitates.</p>
+So far the support for tip geometry is simplistic defining hardcoded single-crystalline pure Al tip with optional monodisperse Al3Sc precipitate fraction.</p>
 <div class="line-block">
 <div class="line"><strong>SimRelBottomRadius</strong></div>
 <div class="line"><strong>SimRelTopRadius</strong></div>
@@ -283,7 +422,7 @@ So far the support for tip geometry is simplistic defining hardcoded single-crys
 <div class="line-block">
 <div class="line">Only frustum height</div>
 </div>
-<div class="line"><strong>SimRelTopCapHeight</strong></div>
+<div class="line"><a href="#id1"><span class="problematic" id="id2">**</span></a>SimRelTopCapHeight**https://</div>
 <div class="line-block">
 <div class="line">All four relative to frustum height ie. restricted on 0,1</div>
 </div>
@@ -318,12 +457,10 @@ So far the support for tip geometry is simplistic defining hardcoded single-crys
 </div>
 <div class="section" id="performance">
 <h2>Performance<a class="headerlink" href="#performance" title="Permalink to this headline">¶</a></h2>
-<p>Options and setting affecting the way PARAPROBE is executed on the machine.</p>
 <div class="line-block">
 <div class="line"><strong>UseNUMABinding</strong></div>
 <div class="line-block">
-<div class="line">If 1, will use the <a class="reference external" href="https://linux.die.net/man/3/numa">NUMA</a> library to pin the threads on specific cores.</div>
-<div class="line">Given that the pinning heuristic is not portable, potential code modification are required.</div>
+<div class="line">Optional feature. The suggestion is to switch it off by default, i.e. set any value other than 1. Instead, if switched on 1, it will instruct to use the NUMA API library to pin the threads to specific cores at runtime. This is not per se not portable across different machine topologies. Users need to inspect their machine topology first (using <a class="reference external" href="https://www.open-mpi.org/projects/hwloc/">hwloc</a> for instance) and modify the corresponding section in the source code.</div>
 </div>
 </div>
 <blockquote>
@@ -340,15 +477,18 @@ So far the support for tip geometry is simplistic defining hardcoded single-crys
   <h3><a href="index.html">Table Of Contents</a></h3>
   <ul>
 <li><a class="reference internal" href="#"><strong>XML Control File Settings</strong></a><ul>
+<li><a class="reference internal" href="#questions">Questions?</a></li>
 <li><a class="reference internal" href="#input">Input</a></li>
 <li><a class="reference internal" href="#analysis-mode">Analysis mode</a></li>
 <li><a class="reference internal" href="#reconstruction">Reconstruction</a></li>
 <li><a class="reference internal" href="#tip-surface-reconstruction">Tip surface reconstruction</a></li>
 <li><a class="reference internal" href="#analysis-tasks">Analysis Tasks</a></li>
-<li><a class="reference internal" href="#bas-et-al-reconstruction-parameter">Bas et al reconstruction parameter</a></li>
-<li><a class="reference internal" href="#smart-pruning">Smart pruning</a></li>
+<li><a class="reference internal" href="#barr-et-al-reconstruction-parameter">Barr et al reconstruction parameter</a></li>
+<li><a class="reference internal" href="#smart-pruning-prior-surface-reconstruction">Smart pruning prior surface reconstruction</a></li>
+<li><a class="reference internal" href="#crystallographic-analysis">Crystallographic analysis</a></li>
 <li><a class="reference internal" href="#descriptive-spatial-statistics-parameter">Descriptive spatial statistics parameter</a></li>
 <li><a class="reference internal" href="#clustering-analyses-parameter">Clustering analyses parameter</a></li>
+<li><a class="reference internal" href="#tessellation-analyses">Tessellation analyses</a></li>
 <li><a class="reference internal" href="#visualization-options">Visualization options</a></li>
 <li><a class="reference internal" href="#synthetic-tip">Synthetic tip</a></li>
 <li><a class="reference internal" href="#performance">Performance</a></li>

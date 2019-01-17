@@ -37,7 +37,8 @@
 #include <omp.h>
 
 #define MASTER									0
-#define	SINGLE_PROCESS							1
+#define SINGLETHREADED							1
+#define	SINGLEPROCESS							1
 
 #define	MPI_COMM_WORLD_OMP_GET_NUM_THREADS		1 //12
 

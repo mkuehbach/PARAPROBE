@@ -1,0 +1,12 @@
+[Ions]
+Number=4
+Ion1=Al
+Ion2=Fe
+Ion3=Si
+Ion4=Sc
+[Ranges]
+Number=4
+Range1=26.7 26.9 Vol:0.01661 Al:1 Color:33FFFF
+Range1=55.9 56.0 Vol:0.01661 Fe:1 Color:33FFFF
+Range1=27.8 28.0 Vol:0.01661 Si:1 Color:33FFFF
+Range1=44.8 50.0 Vol:0.01661 Sc:1 Color:33FFFF

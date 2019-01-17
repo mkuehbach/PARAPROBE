@@ -30,14 +30,46 @@
 
 #include "PARAPROBE_HDF5.h"
 
-#ifdef UTILIZE_HDF5
+//#ifdef UTILIZE_HDF5
+
+
+ostream& operator<<(ostream& in, h5iometa const & val)
+{
+	in << val.dsetnm << "__" << val.nr << "__" << val.nc << endl;
+	return in;
+}
+
+ostream& operator<<(ostream& in, h5offsets const & val)
+{
+	in << "nr0/nr1__" << val.nr0 << "__" << val.nr1 << "__nc0/nc1__" << val.nc0 << "__" << val.nc1 << "__nrmx/ncrmx__" << val.nrmax << "__" << val.ncmax << endl;
+	return in;
+}
+
+
+
+bool h5offsets::is_within_bounds( const size_t _nr0, const size_t _nr1, const size_t _nc0, const size_t _nc1 )
+{
+	if ( _nr0 >= this->nr0 && _nr1 <= (this->nr0 + this->nr1) &&
+			_nc0 >= this->nc0 && _nc1 <= (this->nc0 + this->nc1) )
+		return true;
+	else
+		return false;
+}
+
+
+/*
+size_t h5offsets::interval_length( const size_t _n0, const size_t _n1 )
+{
+	if ( this->is_within_bounds( _n0, _n1) == true )
+		return _n1-_n0;
+	else
+		return -1;
+}
+*/
+
 
 void debug_hdf5( void )
 {
-#ifndef UTILIZE_HDF5
-	cout << "PARAPROBE was not compiled with HDF5 support" << endl;
-	return;
-#else
 	/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 	* Copyright by The HDF Group.                                               *
 	* Copyright by the Board of Trustees of the University of Illinois.         *
@@ -83,16 +115,16 @@ void debug_hdf5( void )
 
 	/* Close the file. */
 	status = H5Fclose(file_id);
-#endif
 }
 
 
+/*
 void write_pos_hdf5( vector<vector<pos>*> & in, const string h5_io_fn )
 {
-#ifndef UTILIZE_HDF5
+//#ifndef UTILIZE_HDF5
 	cout << "PARAPROBE was not compiled with HDF5 support" << endl;
 	return;
-#else
+//#else
 	//##MK::add group names
 	//MK::write HDF5 file showing the positions and typ of all ions in reconstructed space
 	double tic, toc;
@@ -244,10 +276,1034 @@ void write_pos_hdf5( vector<vector<pos>*> & in, const string h5_io_fn )
 
 	toc = MPI_Wtime();
 	cout << "HDF5 Reconstruction ion locations written in " << (toc - tic) << " seconds" << endl;
-#endif
+//#endif
+}
+*/
+
+
+h5Hdl::h5Hdl()
+{
+	status = 0;
+	fileid = 0;
+	groupid = 0;
+	mspcid = 0;
+	dsetid = 0;
+	dspcid = 0;
+	cparms = 0;
+	fspcid = 0;
+
+	dims[0] = 0; 		dims[1] = 0;
+	maxdims[0] = 0; 	maxdims[1] = 0;
+	offset[0] = 0; 		offset[1] = 0;
+	dimsnew[0] = 0; 	dimsnew[1] = 0;
+
+	nrows = 0;
+	ncols = 0;
+	BytesPerChunk = 0;
+	RowsPerChunk = 0;
+	ColsPerChunk = 0;
+	RowsColsPerChunk = 0;
+	NChunks = 0;
+	TotalWriteHere = 0;
+	TotalWritePortion = 0;
+	TotalWriteAllUsed = 0;
+	TotalWriteAllChunk = 0;
+
+	h5resultsfn = "";
+
+	u32le_buf = NULL;
+	f64le_buf = NULL;
 }
 
-#endif
+
+h5Hdl::~h5Hdl()
+{
+	delete [] u32le_buf; u32le_buf = NULL;
+	delete [] f64le_buf; f64le_buf = NULL;
+}
+
+
+void h5Hdl::reinitialize()
+{
+	status = 0;
+	fileid = 0;
+	groupid = 0;
+	dsetid = 0;
+	dspcid = 0;
+	cparms = 0;
+	fspcid = 0;
+
+	dims[0] = 0; 		dims[1] = 0;
+	maxdims[0] = 0; 	maxdims[1] = 0;
+	offset[0] = 0; 		offset[1] = 0;
+	dimsnew[0] = 0; 	dimsnew[1] = 0;
+
+	nrows = 0;
+	ncols = 0;
+	BytesPerChunk = 0;
+	RowsPerChunk = 0;
+	ColsPerChunk = 0;
+	RowsColsPerChunk = 0;
+	NChunks = 0;
+	TotalWriteHere = 0;
+	TotalWritePortion = 0;
+	TotalWriteAllUsed = 0;
+	TotalWriteAllChunk = 0;
+
+	h5resultsfn = "";
+
+	delete [] u32le_buf;
+	delete [] f64le_buf;
+}
+
+
+int h5Hdl::create_file( const string h5fn )
+{
+	h5resultsfn = h5fn;
+	fileid = H5Fcreate( h5resultsfn.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT );
+	status = H5Fclose(fileid);
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::create_paraprobe_results_file( const string h5fn )
+{
+	//generate PARAPROBE reporting file for general results referring to the reconstruction and surface
+	//H5F_ACC_TRUNC truncate content of all files in current working directory with same name as h5fn
+	h5resultsfn = h5fn;
+	fileid = H5Fcreate( h5resultsfn.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT );
+
+	//Ranging is always done, all types and ranges
+
+	//VolumeRecon,xyz,mq
+	if ( Settings::IOReconstruction == true || Settings::IOIonTipSurfDists == true ) {
+		groupid = H5Gcreate2(fileid, PARAPROBE_VOLRECON, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		status = H5Gclose(groupid);
+	}
+
+	//SurfaceRecon, alphaShape, distances
+	if ( Settings::SurfaceMeshingAlgo != E_NOSURFACE ) {
+		groupid = H5Gcreate2(fileid, PARAPROBE_SURFRECON, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		status = H5Gclose(groupid);
+		groupid = H5Gcreate2(fileid, PARAPROBE_SURFRECON_ASHAPE, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		status = H5Gclose(groupid);
+		groupid = H5Gcreate2(fileid, PARAPROBE_SURFRECON_ASHAPE_HULL, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		status = H5Gclose(groupid);
+	}
+
+	//descriptive statistics
+	if ( Settings::SpatialDistributionTask != E_NOSPATSTAT ) {
+		groupid = H5Gcreate2(fileid, PARAPROBE_DESCRSTATS, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		status = H5Gclose(groupid);
+
+		if ( Settings::SpatStatDoNPCorr == true ) {
+			groupid = H5Gcreate2(fileid, PARAPROBE_DESCRSTATS_NCORR, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+			status = H5Gclose(groupid);
+		}
+	}
+
+	//close file
+	status = H5Fclose(fileid);
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::create_paraprobe_clust_file( const string h5fn )
+{
+	//generate PARAPROBE reporting file for clustering results
+	//H5F_ACC_TRUNC truncate content of all files in current working directory with same name as h5fn
+	h5resultsfn = h5fn;
+	fileid = H5Fcreate( h5resultsfn.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT );
+
+	//clustering
+	groupid = H5Gcreate2(fileid, PARAPROBE_CLUST, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	status = H5Gclose(groupid);
+
+	if ( Settings::ClusteringTask == E_MAXSEPARATION ) {
+		groupid = H5Gcreate2(fileid, PARAPROBE_CLUST_MAXSEP, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		status = H5Gclose(groupid);
+		groupid = H5Gcreate2(fileid, PARAPROBE_CLUST_MAXSEP_SZOUT, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		status = H5Gclose(groupid);
+		groupid = H5Gcreate2(fileid, PARAPROBE_CLUST_MAXSEP_SZINN, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		status = H5Gclose(groupid);
+		groupid = H5Gcreate2(fileid, PARAPROBE_CLUST_MAXSEP_XYZOUT, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		status = H5Gclose(groupid);
+		groupid = H5Gcreate2(fileid, PARAPROBE_CLUST_MAXSEP_XYZINN, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		status = H5Gclose(groupid);
+		groupid = H5Gcreate2(fileid, PARAPROBE_CLUST_MAXSEP_SZALL_CDF, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		status = H5Gclose(groupid);
+		groupid = H5Gcreate2(fileid, PARAPROBE_CLUST_MAXSEP_SZINN_CDF, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		status = H5Gclose(groupid);
+	}
+
+	//close file
+	status = H5Fclose(fileid);
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::create_paraprobe_cryst_file( const string h5fn )
+{
+	//generate PARAPROBE reporting file for crystallography results
+	h5resultsfn = h5fn;
+	fileid = H5Fcreate( h5resultsfn.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT );
+
+	//Crystallography, sampling point cloud, elev/azim pair cloud, three strongest signals
+	//cloud of points in corresponding spaces, not necessarily regular nd grids!
+	groupid = H5Gcreate2(fileid, PARAPROBE_CRYSTALLO, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	status = H5Gclose(groupid);
+	groupid = H5Gcreate2(fileid, PARAPROBE_CRYSTALLO_THREESTRONGEST, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	status = H5Gclose(groupid);
+
+	//close file
+	status = H5Fclose(fileid);
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+/*
+int h5Hdl::create_paraprobe_voronoi_file( const string h5fn )
+{
+	if ( Settings::VolumeTessellation != E_NOTESS ) {
+		//generate PARAPROBE default results reporting file
+		//H5F_ACC_TRUNC truncate content of all files in current working directory with same name as h5fn
+		h5resultsfn = h5fn;
+		fileid = H5Fcreate( h5resultsfn.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT );
+
+		//close file
+		status = H5Fclose(fileid);
+		return WRAPPED_HDF5_SUCCESS;
+	}
+	return WRAPPED_HDF5_SUCCESS;
+}
+*/
+
+
+int h5Hdl::create_group( const string h5fn, const string grpnm )
+{
+	//##MK::check if file exists
+	fileid = H5Fopen(h5fn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+	groupid = H5Gcreate2(fileid, grpnm.c_str(), H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	status = H5Gclose(groupid);
+	status = H5Fclose(fileid);
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::create_contiguous_matrix_u8le( h5iometa const & h5info )
+{
+	fileid = H5Fopen( h5resultsfn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+	hsize_t dims[2] = { h5info.nr, h5info.nc };
+	hsize_t maxdims[2] = { h5info.nr, h5info.nc };
+	dspcid = H5Screate_simple( 2, dims, maxdims );
+	dsetid = H5Dcreate2( fileid, h5info.dsetnm.c_str(), H5T_STD_U8LE, dspcid,
+							H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	status = H5Dclose(dsetid);
+	status = H5Sclose(dspcid);
+	status = H5Fclose(fileid);
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::create_contiguous_matrix_u32le( h5iometa const & h5info )
+{
+	fileid = H5Fopen( h5resultsfn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+	hsize_t dims[2] = { h5info.nr, h5info.nc };
+	hsize_t maxdims[2] = { h5info.nr, h5info.nc };
+	dspcid = H5Screate_simple( 2, dims, maxdims );
+	dsetid = H5Dcreate2( fileid, h5info.dsetnm.c_str(), H5T_STD_U32LE, dspcid,
+							H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	status = H5Dclose(dsetid);
+	status = H5Sclose(dspcid);
+	status = H5Fclose(fileid);
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::create_contiguous_matrix_u64le( h5iometa const & h5info )
+{
+	fileid = H5Fopen( h5resultsfn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+	hsize_t dims[2] = { h5info.nr, h5info.nc };
+	hsize_t maxdims[2] = { h5info.nr, h5info.nc };
+	dspcid = H5Screate_simple( 2, dims, maxdims );
+	dsetid = H5Dcreate2( fileid, h5info.dsetnm.c_str(), H5T_STD_U64LE, dspcid,
+							H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	status = H5Dclose(dsetid);
+	status = H5Sclose(dspcid);
+	status = H5Fclose(fileid);
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::create_contiguous_matrix_i16le( h5iometa const & h5info )
+{
+	fileid = H5Fopen( h5resultsfn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+	hsize_t dims[2] = { h5info.nr, h5info.nc };
+	hsize_t maxdims[2] = { h5info.nr, h5info.nc };
+	dspcid = H5Screate_simple( 2, dims, maxdims );
+	dsetid = H5Dcreate2( fileid, h5info.dsetnm.c_str(), H5T_STD_I16LE, dspcid,
+							H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	status = H5Dclose(dsetid);
+	status = H5Sclose(dspcid);
+	status = H5Fclose(fileid);
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::create_contiguous_matrix_f32le( h5iometa const & h5info )
+{
+	fileid = H5Fopen( h5resultsfn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+	hsize_t dims[2] = { h5info.nr, h5info.nc };
+	hsize_t maxdims[2] = { h5info.nr, h5info.nc };
+	dspcid = H5Screate_simple( 2, dims, maxdims );
+	dsetid = H5Dcreate2( fileid, h5info.dsetnm.c_str(), H5T_IEEE_F32LE, dspcid,
+							H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	status = H5Dclose(dsetid);
+	status = H5Sclose(dspcid);
+	status = H5Fclose(fileid);
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::create_contiguous_matrix_f64le( h5iometa const & h5info )
+{
+	fileid = H5Fopen( h5resultsfn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+	hsize_t dims[2] = { h5info.nr, h5info.nc };
+	hsize_t maxdims[2] = { h5info.nr, h5info.nc };
+	dspcid = H5Screate_simple( 2, dims, maxdims );
+	dsetid = H5Dcreate2( fileid, h5info.dsetnm.c_str(), H5T_IEEE_F64LE, dspcid,
+							H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	status = H5Dclose(dsetid);
+	status = H5Sclose(dspcid);
+	status = H5Fclose(fileid);
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+
+int h5Hdl::create_scalar_u64le( const string h5fn, const string grpnm, const size_t val )
+{
+	fileid = H5Fopen(h5fn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT );
+	int rank = 1;
+	hsize_t sdims[1] = { 1};
+	dspcid = H5Screate_simple( rank, sdims, NULL);
+	dsetid = H5Dcreate2(fileid, grpnm.c_str(), H5T_STD_U64LE, dspcid, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	size_t wdata[1] = { val };
+	status = H5Dwrite(dsetid, H5T_STD_U64LE, H5S_ALL, H5S_ALL, H5P_DEFAULT, &wdata );
+	status = H5Dclose(dsetid);
+	status = H5Sclose(dspcid);
+	status = H5Fclose(fileid);
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::init_chunked_matrix_u32le( const string h5fn, const string dsetnm, const size_t nr, const size_t nc )
+{
+	//customizes h5Hdl properties for writing a matrix of U32LE nr x nc elements to an existent H5 file
+	//we used a chunked data layout in the HDF5 file to allow for inplace compression
+	//we caveat is that for arbitrary data the total number of elements nr*nc may not be integer multiple
+	//of chunk size, hence we have to fill with buffer
+	//##MK::in the future use new partial chunking feature of HDF5 1.10.2 to avoid section of trailing dummies on last chunk
+	//we can still though use current concept for visualizing for instance Voronoi cells using XDMF
+	//for this we need at least two implicit arrays, one encoding the explicit cell topology
+	//another the cell vertex coordinates, however if nr*nc is not necessarily integer multiple of chunk size
+	//this is ugly but works as within the XDMF file we can just tell the Dimension of the dataset
+	//here we can use the trick that the dimension of the implicit 1d array can be defined shorter
+	//than the actual size of the chunked data set
+
+	//we use a several MB write buffer fill before writing the first chunk with dummy values
+	//this is useful then fusing successively threadlocal data because threads know their local
+	//write entry and exit positions on the global array thereby allowing to handle the complexity
+	//of having threadlocal datasets potentially crossing chunk boundaries or generating partially filled chunks
+	//which the next thread continues filling and writes to file
+	nrows = nr; //real dataset size in number of elements on 1d implicit buffer of unsigned int is nr*nc
+	ncols = nc;
+	BytesPerChunk = static_cast<size_t>(1*1024*1024); //MK::use default chunk size 1MB, ##MK::performance study
+	//##MK::value check needs to be integer multiple of sizeof(unsigned int)*ncols !
+	RowsPerChunk = BytesPerChunk / (sizeof(unsigned int) * ncols);
+	ColsPerChunk = ncols;
+	RowsColsPerChunk = RowsPerChunk*ColsPerChunk;
+	NChunks = static_cast<size_t>( ceil(static_cast<double>(nrows*ncols) / static_cast<double>(RowsColsPerChunk)) );
+
+cout << "HDF5 RealDataRows/Cols_BytesPerChunk_Rows/Cols/Rows*ColsPerChunk_NChunksTotal\t\t" << nrows << ";" << ncols << ";" << BytesPerChunk << ";" << RowsPerChunk << ";" << ColsPerChunk << ";" << RowsColsPerChunk << ";" << NChunks << endl;
+
+	//allocate a read/write buffer to pass data to the H5 library call functions
+	if ( u32le_buf != NULL ) {
+		delete [] u32le_buf;
+		u32le_buf = NULL;
+	}
+	else {
+		try {
+			u32le_buf = new unsigned int[RowsPerChunk*ColsPerChunk];
+		}
+		catch (bad_alloc &h5croak) {
+			stopping("Allocation error for write buffer in init_chunked_matrix_u32le HDF5");
+			return WRAPPED_HDF5_ALLOCERR;
+		}
+	}
+
+	//open an existent H5 file with read/write access
+	fileid = H5Fopen( h5fn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+
+	//initialize in this file a chunked data set in an existent group
+
+	//start processing chunks into buffer successively and write to HDF5 file
+	dims[0] = RowsPerChunk; 		dims[1] = ColsPerChunk;
+	maxdims[0] = H5S_UNLIMITED;		maxdims[1] = H5S_UNLIMITED;
+	offset[0] = 0;					offset[1] = 0;
+	dimsnew[0] = 0;					dimsnew[1] = ColsPerChunk;
+
+	dspcid = H5Screate_simple(2, dims, maxdims);
+	cparms = H5Pcreate(H5P_DATASET_CREATE);
+	status = H5Pset_chunk( cparms, 2, dims);
+
+	unsigned int fillval = HDF5_U32LE_DUMMYVALUE;
+	status = H5Pset_fill_value(cparms, H5T_STD_U32LE, &fillval );
+	dsetid = H5Dcreate2(fileid, dsetnm.c_str(), H5T_STD_U32LE, dspcid, H5P_DEFAULT, cparms, H5P_DEFAULT);
+
+	//fill read/write buffer with dummy values which the preceeding write steps can parse
+	for(size_t i = 0; i < RowsColsPerChunk; ++i) {
+		u32le_buf[i] = HDF5_U32LE_DUMMYVALUE;
+	}
+	//and use in combination with the position offsets to always complete first individual chunks,
+	//thereafter write them to file and refresh the read/write buffer with dummy values to avoid
+	//having to read the file content for any preceeding thread whose data portion interval falls arbitrarily
+	//on a chunk boundary
+	TotalWriteHere = 0;
+	TotalWritePortion = RowsColsPerChunk;
+	TotalWriteAllUsed = nrows*ncols;
+	TotalWriteAllChunk = NChunks*RowsColsPerChunk; //so many implicitly coded unsigned int to write in total (including potential buffer of trailing dummies)
+
+	//do not close any resource handlers or the file, in what follows we will add data portions per thread
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::write_chunked_matrix_u32le( const string h5fn, const string dsetnm, vector<unsigned int> const & buffer )
+{
+	//write a local data portion using opened resources use previous allocated read/write buffer
+	//and evaluating Total* interval positioning values to identify whether previous chunk is complete or not
+	/*
+	cout << "start/end/dims[0]/buffer.size()\t\t" << start << ";" << end << ";" << dims[0] << ";" << buffer.size() << endl;
+	//MK::[start, end) mark positions on the initialized current dataset were the buffer data should be written to
+	//check that [start,end) is within initialized bounds
+	if ( start >= dims[0] || end > dims[0] )
+		return WRAPPED_HDF5_OUTOFBOUNDS;
+	//check that [start,end) length is the same as the buffer
+	if ( (end-start) != buffer.size() )
+		return WRAPPED_HDF5_ARGINCONSISTENT;
+	*/
+
+	//challenge is that interval [start,end) is not necessarily aligned with the implicitly defined chunk boundaries
+	//hence find first chunk which contains array index position start
+	size_t LocalCompleted = 0; //how much of feed buffer already processed
+	size_t LocalTotal = buffer.size(); //total size of the feed buffer
+
+	size_t BufferWriteHere = 0; //where to start filling in h5 write buffer u32le_buf
+	size_t BufferWriteNow = 0; //how many remaining fillable before u32le_buf is full and needs a flush
+
+	do { //loop for as many chunks as fillable with feed buffer content
+		//on the fly filling and writing back of completed chunk
+		//prior to filling the very first value from feed buffer TotalWriteHere == 0
+		//right after filling n-th chunk TotalWriteHere % RowsCols == 0 so buffer was full but already emptied
+		//in both these cases the buffer is in a state scientifically completely unfilled
+		//MK::so if we feed the results from the threadlocal buffers in the strict ascending order
+		//of their threadIDs, i.e. begin with MASTER, the h5 write buffer was not yet flushed to file
+
+		BufferWriteHere = TotalWriteHere % RowsColsPerChunk;
+		BufferWriteNow = RowsColsPerChunk;
+		//correct write interval end because potential feed buffer not large enough
+		//correct write interval end additionally based on whether still sufficient place on buffer available
+		if ( (BufferWriteHere+(LocalTotal-LocalCompleted)) < RowsColsPerChunk )
+			BufferWriteNow = BufferWriteHere + LocalTotal-LocalCompleted;
+
+cout << "1::BufferWriteHere;Now;LocalCompleted;TotalWriteHere\t\t" << BufferWriteHere << ";" << BufferWriteNow << ";" << LocalCompleted << ";" << TotalWriteHere << endl;
+		for( size_t w = BufferWriteHere; w < BufferWriteNow; w++ ) {
+			u32le_buf[w] = buffer.at(LocalCompleted);
+			LocalCompleted++;
+			TotalWriteHere++;
+		}
+cout << "2::BufferWriteHere;Now;LocalCompleted;TotalWriteHere\t\t" << BufferWriteHere << ";" << BufferWriteNow << ";" << LocalCompleted << ";" << TotalWriteHere << endl;
+
+		//potentially write to H5 file
+		if ( TotalWriteHere % RowsColsPerChunk == 0 ) {
+cout << "3::Writing a full chunk" << endl;
+			dimsnew[0] = dimsnew[0] + RowsPerChunk;
+			//second dimension of dimsnew needs to remain as is!
+			//the chunk is always written completely, regardless how many values physically relevant or not!
+			status = H5Dset_extent(dsetid, dimsnew);
+			fspcid = H5Dget_space(dsetid);
+			status = H5Sselect_hyperslab(fspcid, H5S_SELECT_SET, offset, NULL, dims, NULL);
+			status = H5Dwrite(dsetid, H5T_STD_U32LE, dspcid, fspcid, H5P_DEFAULT, u32le_buf);
+			offset[0] = offset[0] + RowsPerChunk;
+			//second dimension of offset needs to remain as is!
+
+			//refresh buffer with dummies completely
+			for ( size_t i = 0; i < RowsColsPerChunk; ++i )
+				u32le_buf[i] = HDF5_U32LE_DUMMYVALUE;
+		}
+
+	} while ( LocalCompleted < LocalTotal );
+	//processing of feed buffer done
+
+cout << "--->Local done\t\t" << TotalWriteHere << "\t\t" << TotalWriteAllUsed << "\t\t" << TotalWriteAllChunk << endl;
+
+	//dont forget to pass potentially remaining part of the h5 write buffer to file
+	if ( TotalWriteHere >= TotalWriteAllUsed ) { //everything which was planned in buffer
+		//write h5 buffer out last time if not already happened
+		if ( TotalWriteHere % RowsColsPerChunk != 0 ) {
+cout << "4::Writing last chunk" << endl;
+
+			dimsnew[0] = dimsnew[0] + RowsPerChunk;
+			//second dimension of dimsnew needs to remain as is!
+			//the chunk is always written completely, regardless how many values physically relevant or not!
+			status = H5Dset_extent(dsetid, dimsnew);
+			fspcid = H5Dget_space(dsetid);
+			status = H5Sselect_hyperslab(fspcid, H5S_SELECT_SET, offset, NULL, dims, NULL);
+			status = H5Dwrite(dsetid, H5T_STD_U32LE, dspcid, fspcid, H5P_DEFAULT, u32le_buf);
+			offset[0] = offset[0] + RowsPerChunk;
+			//second dimension of offset needs to remain as is!
+		}
+	}
+
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::reset_chunked_matrix_u32le_aftercompletion()
+{
+cout << "Resetting u32le" << endl;
+
+	if ( u32le_buf != NULL ) {
+		delete [] u32le_buf;
+		u32le_buf = NULL;
+	}
+
+	status = H5Dclose(dsetid);
+	status = H5Sclose(dspcid);
+	status = H5Sclose(fspcid);
+	status = H5Pclose(cparms);
+	status = H5Fclose(fileid);
+
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::write_contiguous_matrix_u8le_atonce( const string h5fn, const string dsetnm,
+				const size_t nr, const size_t nc, vector<unsigned char> const & buffer )
+{
+	//open existing file and place data in there
+	fileid = H5Fopen( h5fn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+	dims[0] = nr; 		dims[1] = nc;
+
+    dspcid = H5Screate_simple( 2, dims, NULL );
+    dsetid = H5Dcreate( fileid, dsetnm.c_str(), H5T_STD_U8LE, dspcid, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT );
+    status = H5Dwrite( dsetid, H5T_STD_U8LE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer.data() );
+    status = H5Dclose (dsetid);
+    status = H5Sclose (dspcid);
+    status = H5Fclose (fileid);
+
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::write_contiguous_matrix_u32le_atonce( const string h5fn, const string dsetnm,
+	const size_t nr, const size_t nc, vector<unsigned int> const & buffer )
+{
+	//open existing file and place data in there
+	fileid = H5Fopen( h5fn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+	dims[0] = nr; 		dims[1] = nc;
+
+    dspcid = H5Screate_simple( 2, dims, NULL );
+    dsetid = H5Dcreate( fileid, dsetnm.c_str(), H5T_STD_U32LE, dspcid, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT );
+    status = H5Dwrite( dsetid, H5T_STD_U32LE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer.data() );
+    status = H5Dclose (dsetid);
+    status = H5Sclose (dspcid);
+    status = H5Fclose (fileid);
+
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::write_contiguous_matrix_u64le_atonce( const string h5fn, const string dsetnm,
+	const size_t nr, const size_t nc, vector<size_t> const & buffer )
+{
+	//open existing file and place data in there
+	fileid = H5Fopen( h5fn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+	dims[0] = nr; 		dims[1] = nc;
+
+    dspcid = H5Screate_simple( 2, dims, NULL );
+    dsetid = H5Dcreate( fileid, dsetnm.c_str(), H5T_STD_U64LE, dspcid, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT );
+    status = H5Dwrite( dsetid, H5T_STD_U64LE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer.data() );
+    status = H5Dclose (dsetid);
+    status = H5Sclose (dspcid);
+    status = H5Fclose (fileid);
+
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::write_contiguous_matrix_f32le_atonce( const string h5fn, const string dsetnm,
+	const size_t nr, const size_t nc, vector<float> const & buffer )
+{
+	//open existing file and place data in there
+	fileid = H5Fopen( h5fn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+	dims[0] = nr; 		dims[1] = nc;
+
+    dspcid = H5Screate_simple( 2, dims, NULL );
+    dsetid = H5Dcreate( fileid, dsetnm.c_str(), H5T_IEEE_F32LE, dspcid, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT );
+    status = H5Dwrite( dsetid, H5T_IEEE_F32LE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer.data() );
+    status = H5Dclose (dsetid);
+    status = H5Sclose (dspcid);
+    status = H5Fclose (fileid);
+
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::write_contiguous_matrix_f64le_atonce( const string h5fn, const string dsetnm,
+	const size_t nr, const size_t nc, vector<double> const & buffer )
+{
+	//open existing file and place data in there
+	fileid = H5Fopen( h5fn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+	dims[0] = nr; 		dims[1] = nc;
+
+    dspcid = H5Screate_simple( 2, dims, NULL );
+    dsetid = H5Dcreate( fileid, dsetnm.c_str(), H5T_IEEE_F64LE, dspcid, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT );
+    status = H5Dwrite( dsetid, H5T_IEEE_F64LE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer.data() );
+    status = H5Dclose (dsetid);
+    status = H5Sclose (dspcid);
+    status = H5Fclose (fileid);
+
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+
+int h5Hdl::write_contiguous_matrix_u8le_hyperslab( h5iometa const & h5info,
+		h5offsets const & offsetinfo, vector<unsigned char> const & buffer )
+{
+	//buffer carries implicitly stored matrices row blocks glued together along columns
+	//subset dimensions planned in relation to entire dataset
+	//global context of the dataset a portion of it should now be written
+	hsize_t mxdims[2] = { h5info.nr, h5info.nc };
+
+	//do the write offsets remain within mxdims?
+	if ( offsetinfo.nr1 < offsetinfo.nr0 || offsetinfo.nc1 < offsetinfo.nc0 ||
+			offsetinfo.nr1 > mxdims[0] || offsetinfo.nc1 > mxdims[1] ) {
+		return WRAPPED_HDF5_INCORRECTOFFSETS;
+	}
+
+	hsize_t dimssub[2] = { offsetinfo.nr1 - offsetinfo.nr0, offsetinfo.nc1 - offsetinfo.nc0 };
+
+
+	//bounds check and consistency buffer has the same length than planed
+	if ( buffer.size() == dimssub[0] * dimssub[1] ) {
+		//define offset
+		hsize_t offset[2] = { offsetinfo.nr0, offsetinfo.nc0 };
+		hsize_t count[2] = { dimssub[0], dimssub[1] };
+		hsize_t stride[2] = { 1, 1};
+		hsize_t block[2] = { 1, 1};
+		fileid = H5Fopen( h5resultsfn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT );
+		dsetid = H5Dopen2( fileid, h5info.dsetnm.c_str(), H5P_DEFAULT );
+
+		mspcid = H5Screate_simple(2, dimssub, mxdims );
+		dspcid = H5Dget_space( dsetid );
+		status = H5Sselect_hyperslab(dspcid, H5S_SELECT_SET, offset, stride, count, block);
+		status = H5Dwrite( dsetid, H5T_STD_U8LE, mspcid, dspcid, H5P_DEFAULT, buffer.data() );
+
+	    status = H5Sclose(mspcid);
+	    status = H5Sclose(dspcid);
+	    status = H5Dclose(dsetid);
+	    status = H5Fclose(fileid);
+		return WRAPPED_HDF5_SUCCESS;
+	}
+	else {
+		return WRAPPED_HDF5_INCORRECTDIMENSIONS;
+	}
+}
+
+
+int h5Hdl::write_contiguous_matrix_u32le_hyperslab( h5iometa const & h5info,
+		h5offsets const & offsetinfo, vector<unsigned int> const & buffer )
+{
+	//buffer carries implicitly stored matrices row blocks glued together along columns
+	//subset dimensions planned in relation to entire dataset
+	//global context of the dataset a portion of it should now be written
+	hsize_t mxdims[2] = { h5info.nr, h5info.nc };
+
+	//do the write offsets remain within mxdims?
+	if ( offsetinfo.nr1 < offsetinfo.nr0 || offsetinfo.nc1 < offsetinfo.nc0 ||
+			offsetinfo.nr1 > mxdims[0] || offsetinfo.nc1 > mxdims[1] ) {
+		return WRAPPED_HDF5_INCORRECTOFFSETS;
+	}
+
+	hsize_t dimssub[2] = { offsetinfo.nr1 - offsetinfo.nr0, offsetinfo.nc1 - offsetinfo.nc0 };
+
+
+	//bounds check and consistency buffer has the same length than planed
+	if ( buffer.size() == dimssub[0] * dimssub[1] ) {
+		//define offset
+		hsize_t offset[2] = { offsetinfo.nr0, offsetinfo.nc0 };
+		hsize_t count[2] = { dimssub[0], dimssub[1] };
+		hsize_t stride[2] = { 1, 1};
+		hsize_t block[2] = { 1, 1};
+		fileid = H5Fopen( h5resultsfn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT );
+		dsetid = H5Dopen2( fileid, h5info.dsetnm.c_str(), H5P_DEFAULT );
+
+		mspcid = H5Screate_simple(2, dimssub, mxdims );
+		dspcid = H5Dget_space( dsetid );
+		status = H5Sselect_hyperslab(dspcid, H5S_SELECT_SET, offset, stride, count, block);
+		status = H5Dwrite( dsetid, H5T_STD_U32LE, mspcid, dspcid, H5P_DEFAULT, buffer.data() );
+
+	    status = H5Sclose(mspcid);
+	    status = H5Sclose(dspcid);
+	    status = H5Dclose(dsetid);
+	    status = H5Fclose(fileid);
+		return WRAPPED_HDF5_SUCCESS;
+	}
+	else {
+		return WRAPPED_HDF5_INCORRECTDIMENSIONS;
+	}
+}
+
+
+int h5Hdl::write_contiguous_matrix_u64le_hyperslab( h5iometa const & h5info,
+			h5offsets const & offsetinfo, vector<size_t> const & buffer )
+{
+	//buffer carries implicitly stored matrices row blocks glued together along columns
+	//subset dimensions planned in relation to entire dataset
+	//global context of the dataset a portion of it should now be written
+	hsize_t mxdims[2] = { h5info.nr, h5info.nc };
+
+	//do the write offsets remain within mxdims?
+	if ( offsetinfo.nr1 < offsetinfo.nr0 || offsetinfo.nc1 < offsetinfo.nc0 ||
+			offsetinfo.nr1 > mxdims[0] || offsetinfo.nc1 > mxdims[1] ) {
+		return WRAPPED_HDF5_INCORRECTOFFSETS;
+	}
+
+	//the ni1 offsets (nr1,nc1) always give exclusive bounds, i.e. index the next array index beyond the last to read/write
+	hsize_t dimssub[2] = { offsetinfo.nr1 - offsetinfo.nr0, offsetinfo.nc1 - offsetinfo.nc0 };
+
+
+	//bounds check and consistency buffer has the same length than planed
+	if ( buffer.size() == dimssub[0] * dimssub[1] ) {
+		//define offset
+		hsize_t offset[2] = { offsetinfo.nr0, offsetinfo.nc0 };
+		hsize_t count[2] = { dimssub[0], dimssub[1] };
+		hsize_t stride[2] = { 1, 1};
+		hsize_t block[2] = { 1, 1};
+		fileid = H5Fopen( h5resultsfn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT );
+		dsetid = H5Dopen2( fileid, h5info.dsetnm.c_str(), H5P_DEFAULT );
+
+		mspcid = H5Screate_simple(2, dimssub, mxdims );
+		dspcid = H5Dget_space( dsetid );
+		status = H5Sselect_hyperslab(dspcid, H5S_SELECT_SET, offset, stride, count, block);
+		status = H5Dwrite( dsetid, H5T_STD_U64LE, mspcid, dspcid, H5P_DEFAULT, buffer.data() );
+
+	    status = H5Sclose(mspcid);
+	    status = H5Sclose(dspcid);
+	    status = H5Dclose(dsetid);
+	    status = H5Fclose(fileid);
+		return WRAPPED_HDF5_SUCCESS;
+	}
+	else {
+		return WRAPPED_HDF5_INCORRECTDIMENSIONS;
+	}
+}
+
+
+int h5Hdl::write_contiguous_matrix_i16le_hyperslab( h5iometa const & h5info,
+						h5offsets const & offsetinfo, vector<short> const & buffer )
+{
+	//buffer carries implicitly stored matrices row blocks glued together along columns
+	//subset dimensions planned in relation to entire dataset
+	//global context of the dataset a portion of it should now be written
+	hsize_t mxdims[2] = { h5info.nr, h5info.nc };
+
+	//do the write offsets remain within mxdims?
+	if ( offsetinfo.nr1 < offsetinfo.nr0 || offsetinfo.nc1 < offsetinfo.nc0 ||
+			offsetinfo.nr1 > mxdims[0] || offsetinfo.nc1 > mxdims[1] ) {
+		return WRAPPED_HDF5_INCORRECTOFFSETS;
+	}
+
+	//the ni1 offsets (nr1,nc1) always give exclusive bounds, i.e. index the next array index beyond the last to read/write
+	hsize_t dimssub[2] = { offsetinfo.nr1 - offsetinfo.nr0, offsetinfo.nc1 - offsetinfo.nc0 };
+
+
+	//bounds check and consistency buffer has the same length than planed
+	if ( buffer.size() == dimssub[0] * dimssub[1] ) {
+		//define offset
+		hsize_t offset[2] = { offsetinfo.nr0, offsetinfo.nc0 };
+		hsize_t count[2] = { dimssub[0], dimssub[1] };
+		hsize_t stride[2] = { 1, 1};
+		hsize_t block[2] = { 1, 1};
+		fileid = H5Fopen( h5resultsfn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT );
+		dsetid = H5Dopen2( fileid, h5info.dsetnm.c_str(), H5P_DEFAULT );
+
+		mspcid = H5Screate_simple(2, dimssub, mxdims );
+		dspcid = H5Dget_space( dsetid );
+		status = H5Sselect_hyperslab(dspcid, H5S_SELECT_SET, offset, stride, count, block);
+		status = H5Dwrite( dsetid, H5T_STD_I16LE, mspcid, dspcid, H5P_DEFAULT, buffer.data() );
+
+	    status = H5Sclose(mspcid);
+	    status = H5Sclose(dspcid);
+	    status = H5Dclose(dsetid);
+	    status = H5Fclose(fileid);
+		return WRAPPED_HDF5_SUCCESS;
+	}
+	else {
+		return WRAPPED_HDF5_INCORRECTDIMENSIONS;
+	}
+}
+
+
+int h5Hdl::write_contiguous_matrix_f32le_hyperslab( h5iometa const & h5info,
+						h5offsets const & offsetinfo, vector<float> const & buffer )
+{
+	//buffer carries implicitly stored matrices row blocks glued together along columns
+	//subset dimensions planned in relation to entire dataset
+	//global context of the dataset a portion of it should now be written
+	hsize_t mxdims[2] = { h5info.nr, h5info.nc };
+
+	//do the write offsets remain within mxdims?
+	if ( offsetinfo.nr1 < offsetinfo.nr0 || offsetinfo.nc1 < offsetinfo.nc0 ||
+			offsetinfo.nr1 > mxdims[0] || offsetinfo.nc1 > mxdims[1] ) {
+		return WRAPPED_HDF5_INCORRECTOFFSETS;
+	}
+
+	//the ni1 offsets (nr1,nc1) always give exclusive bounds, i.e. index the next array index beyond the last to read/write
+	hsize_t dimssub[2] = { offsetinfo.nr1 - offsetinfo.nr0, offsetinfo.nc1 - offsetinfo.nc0 };
+
+
+	//bounds check and consistency buffer has the same length than planed
+	if ( buffer.size() == dimssub[0] * dimssub[1] ) {
+		//define offset
+		hsize_t offset[2] = { offsetinfo.nr0, offsetinfo.nc0 };
+		hsize_t count[2] = { dimssub[0], dimssub[1] };
+		hsize_t stride[2] = { 1, 1};
+		hsize_t block[2] = { 1, 1};
+		fileid = H5Fopen( h5resultsfn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT );
+		dsetid = H5Dopen2( fileid, h5info.dsetnm.c_str(), H5P_DEFAULT );
+
+		mspcid = H5Screate_simple(2, dimssub, mxdims );
+		dspcid = H5Dget_space( dsetid );
+		status = H5Sselect_hyperslab(dspcid, H5S_SELECT_SET, offset, stride, count, block);
+		status = H5Dwrite( dsetid, H5T_IEEE_F32LE, mspcid, dspcid, H5P_DEFAULT, buffer.data() );
+
+	    status = H5Sclose(mspcid);
+	    status = H5Sclose(dspcid);
+	    status = H5Dclose(dsetid);
+	    status = H5Fclose(fileid);
+		return WRAPPED_HDF5_SUCCESS;
+	}
+	else {
+		return WRAPPED_HDF5_INCORRECTDIMENSIONS;
+	}
+}
+
+
+int h5Hdl::write_contiguous_matrix_f64le_hyperslab( h5iometa const & h5info, h5offsets const & offsetinfo,
+		vector<double> const & buffer )
+{
+	//buffer carries implicitly stored matrices row blocks glued together along columns
+	//subset dimensions planned in relation to entire dataset
+	//global context of the dataset a portion of it should now be written
+	hsize_t mxdims[2] = { h5info.nr, h5info.nc };
+
+	//do the write offsets remain within mxdims?
+	if ( offsetinfo.nr1 < offsetinfo.nr0 || offsetinfo.nc1 < offsetinfo.nc0 ||
+			offsetinfo.nr1 > mxdims[0] || offsetinfo.nc1 > mxdims[1] ) {
+		return WRAPPED_HDF5_INCORRECTOFFSETS;
+	}
+
+	hsize_t dimssub[2] = { offsetinfo.nr1 - offsetinfo.nr0, offsetinfo.nc1 - offsetinfo.nc0 };
+
+
+	//bounds check and consistency buffer has the same length than planed
+	if ( buffer.size() == dimssub[0] * dimssub[1] ) {
+		//define offset
+		hsize_t offset[2] = { offsetinfo.nr0, offsetinfo.nc0 };
+		hsize_t count[2] = { dimssub[0], dimssub[1] };
+		hsize_t stride[2] = { 1, 1};
+		hsize_t block[2] = { 1, 1};
+		fileid = H5Fopen( h5resultsfn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT );
+		dsetid = H5Dopen2( fileid, h5info.dsetnm.c_str(), H5P_DEFAULT );
+
+		mspcid = H5Screate_simple(2, dimssub, mxdims );
+		dspcid = H5Dget_space( dsetid );
+		status = H5Sselect_hyperslab(dspcid, H5S_SELECT_SET, offset, stride, count, block);
+		status = H5Dwrite( dsetid, H5T_IEEE_F64LE, mspcid, dspcid, H5P_DEFAULT, buffer.data() );
+
+	    status = H5Sclose(mspcid);
+	    status = H5Sclose(dspcid);
+	    status = H5Dclose(dsetid);
+	    status = H5Fclose(fileid);
+		return WRAPPED_HDF5_SUCCESS;
+	}
+	else {
+		return WRAPPED_HDF5_INCORRECTDIMENSIONS;
+	}
+}
+
+
+int h5Hdl::init_chunked_matrix_f64le( const string h5fn, const string dsetnm, const size_t nr, const size_t nc )
+{
+	//see additional comments for *_u32le version of these functions...
+	nrows = nr; //real dataset size in number of elements on 1d implicit buffer of unsigned int is nr*nc
+	ncols = nc;
+	BytesPerChunk = static_cast<size_t>(ncols*1024*1024); //MK::use default chunk size 1MB, ##MK::performance study
+	//##MK::value check needs to be integer multiple of sizeof(unsigned int)*ncols !
+	RowsPerChunk = BytesPerChunk / (sizeof(double) * ncols);
+	ColsPerChunk = ncols;
+	RowsColsPerChunk = RowsPerChunk*ColsPerChunk;
+	NChunks = static_cast<size_t>( ceil(static_cast<double>(nrows*ncols) / static_cast<double>(RowsColsPerChunk)) );
+
+cout << "HDF5 RealDataRows/Cols_BytesPerChunk_Rows/Cols/Rows*ColsPerChunk_NChunksTotal\t\t" << nrows << ";" << ncols << ";" << BytesPerChunk << ";" << RowsPerChunk << ";" << ColsPerChunk << ";" << RowsColsPerChunk << ";" << NChunks << endl;
+
+	//allocate a read/write buffer to pass data to the H5 library call functions
+	if ( f64le_buf != NULL ) {
+		delete [] f64le_buf;
+		f64le_buf = NULL;
+	}
+	else {
+		try {
+			f64le_buf = new double[RowsPerChunk*ColsPerChunk];
+		}
+		catch (bad_alloc &h5croak) {
+			stopping("Allocation error for write buffer in init_chunked_matrix_f64le HDF5");
+			return WRAPPED_HDF5_ALLOCERR;
+		}
+	}
+
+	//open an existent H5 file with read/write access
+	fileid = H5Fopen( h5fn.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+
+	//initialize in this file a chunked data set in an existent group
+
+	//start processing chunks into buffer successively and write to HDF5 file
+	dims[0] = RowsPerChunk; 		dims[1] = ColsPerChunk;
+	maxdims[0] = H5S_UNLIMITED;		maxdims[1] = H5S_UNLIMITED;
+	offset[0] = 0;					offset[1] = 0;
+	dimsnew[0] = 0;					dimsnew[1] = ColsPerChunk;
+
+	dspcid = H5Screate_simple(2, dims, maxdims);
+	cparms = H5Pcreate(H5P_DATASET_CREATE);
+	status = H5Pset_chunk( cparms, 2, dims);
+
+	double fillval = HDF5_F64LE_DUMMYVALUE;
+	status = H5Pset_fill_value(cparms, H5T_IEEE_F64LE, &fillval );
+	dsetid = H5Dcreate2(fileid, dsetnm.c_str(), H5T_IEEE_F64LE, dspcid, H5P_DEFAULT, cparms, H5P_DEFAULT);
+
+	//fill read/write buffer with dummy values which the preceeding write steps can parse
+	for(size_t i = 0; i < RowsColsPerChunk; ++i) {
+		f64le_buf[i] = HDF5_F64LE_DUMMYVALUE;
+	}
+	//and use in combination with the position offsets to always complete first individual chunks,
+	//thereafter write them to file and refresh the read/write buffer with dummy values to avoid
+	//having to read the file content for any preceeding thread whose data portion interval falls arbitrarily
+	//on a chunk boundary
+	TotalWriteHere = 0;
+	TotalWritePortion = RowsColsPerChunk;
+	TotalWriteAllUsed = nrows*ncols;
+	TotalWriteAllChunk = NChunks*RowsColsPerChunk; //so many implicitly coded unsigned int to write in total (including potential buffer of trailing dummies)
+
+	//do not close any resource handlers or the file, in what follows we will add data portions per thread
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::write_chunked_matrix_f64le( const string h5fn, const string dsetnm, vector<double> const & buffer )
+{
+	//see additional comments for *_u32le version of this functions...
+	size_t LocalCompleted = 0; //how much of feed buffer already processed
+	size_t LocalTotal = buffer.size(); //total size of the feed buffer
+
+	size_t BufferWriteHere = 0; //where to start filling in h5 write buffer u32le_buf
+	size_t BufferWriteNow = 0; //how many remaining fillable before u32le_buf is full and needs a flush
+
+	do { //loop for as many chunks as fillable with feed buffer content
+		BufferWriteHere = TotalWriteHere % RowsColsPerChunk;
+		BufferWriteNow = RowsColsPerChunk;
+
+		if ( (BufferWriteHere+(LocalTotal-LocalCompleted)) < RowsColsPerChunk )
+			BufferWriteNow = BufferWriteHere + LocalTotal-LocalCompleted;
+
+		//fill buffer
+cout << "1::BufferWriteHere;Now;LocalCompleted;TotalWriteHere\t\t" << BufferWriteHere << ";" << BufferWriteNow << ";" << LocalCompleted << ";" << TotalWriteHere << endl;
+		for( size_t w = BufferWriteHere; w < BufferWriteNow; w++ ) {
+			f64le_buf[w] = buffer.at(LocalCompleted);
+			LocalCompleted++;
+			TotalWriteHere++;
+		}
+cout << "2::BufferWriteHere;Now;LocalCompleted;TotalWriteHere\t\t" << BufferWriteHere << ";" << BufferWriteNow << ";" << LocalCompleted << ";" << TotalWriteHere << endl;
+
+		//potentially flush buffer into H5 file
+		if ( TotalWriteHere % RowsColsPerChunk == 0 ) {
+			//##MK::write#####
+cout << "3::Writing a full chunk" << endl;
+			dimsnew[0] = dimsnew[0] + RowsPerChunk;
+			//second dimension of dimsnew needs to remain as is!
+			//the chunk is always written completely, regardless how many values physically relevant or not!
+			status = H5Dset_extent(dsetid, dimsnew);
+			fspcid = H5Dget_space(dsetid);
+			status = H5Sselect_hyperslab(fspcid, H5S_SELECT_SET, offset, NULL, dims, NULL);
+			status = H5Dwrite(dsetid, H5T_IEEE_F64LE, dspcid, fspcid, H5P_DEFAULT, f64le_buf);
+			offset[0] = offset[0] + RowsPerChunk;
+			//second dimension of offset needs to remain as is!
+
+			//refresh buffer with dummies completely
+			for ( size_t i = 0; i < RowsColsPerChunk; ++i )
+				f64le_buf[i] = HDF5_F64LE_DUMMYVALUE;
+		}
+
+	} while ( LocalCompleted < LocalTotal );
+	//processing of feed buffer done
+
+cout << "--->Local done\t\t" << TotalWriteHere << "\t\t" << TotalWriteAllUsed << "\t\t" << TotalWriteAllChunk << endl;
+
+	//dont forget to pass potentially remaining part of the h5 write buffer to file
+	if ( TotalWriteHere >= TotalWriteAllUsed ) { //everything which was planned in buffer
+		//write h5 buffer out last time if not already happened
+		if ( TotalWriteHere % RowsColsPerChunk != 0 ) {
+cout << "4::Writing last chunk" << endl;
+
+			dimsnew[0] = dimsnew[0] + RowsPerChunk;
+			//second dimension of dimsnew needs to remain as is!
+			//the chunk is always written completely, regardless how many values physically relevant or not!
+			status = H5Dset_extent(dsetid, dimsnew);
+			fspcid = H5Dget_space(dsetid);
+			status = H5Sselect_hyperslab(fspcid, H5S_SELECT_SET, offset, NULL, dims, NULL);
+			status = H5Dwrite(dsetid, H5T_IEEE_F64LE, dspcid, fspcid, H5P_DEFAULT, f64le_buf);
+			offset[0] = offset[0] + RowsPerChunk;
+			//second dimension of offset needs to remain as is!
+		}
+	}
+
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+int h5Hdl::reset_chunked_matrix_f64le_aftercompletion()
+{
+cout << "Resetting f64le" << endl;
+
+	if ( f64le_buf != NULL ) {
+		delete [] f64le_buf;
+		f64le_buf = NULL;
+	}
+
+	status = H5Dclose(dsetid);
+	status = H5Sclose(dspcid);
+	status = H5Sclose(fspcid);
+	status = H5Pclose(cparms);
+	status = H5Fclose(fileid);
+
+	return WRAPPED_HDF5_SUCCESS;
+}
+
+
+//#endif
 
 
 /*

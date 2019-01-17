@@ -50,42 +50,8 @@ public :
 		valid = false;
 	}
 	~histogram() {}
-	/*histogram( const apt_real _start, const apt_real _end, const unsigned int _nbins )
-	{
 
-		cnts_lowest = 0.f;
-		cnts_highest = 0.f;
-		if ( _start < _end && _nbins > 0) {
-			binstart = _start;
-			binwidth = 0.f;
-			binend = _end;
-			tmp = 0.f;
-			nbins = _nbins;
-			try {
-				cnts.clear();
-				cnts.reserve(nbins);
-				for(unsigned int b = 0; b < nbins; ++b){
-					cnts.push_back(0.f);
-				}
-			}
-			catch (bad_alloc &croak) {
-				stopping("Unable to allocate memory in histogram class object");
-			}
-			binwidth = (binend - binstart) / static_cast<apt_real>(nbins);
-			tmp = 1.0 / (binend-binstart) * static_cast<apt_real>(nbins);
-			valid = true; //knows limits a
-		}
-		else {
-			binstart = 0.f;
-			binwidth = 0.f;
-			binend = 0.f;
-			tmp = 0.f;
-			nbins = 0;
-			valid = false;
-		}
-	}*/
-
-	histogram( const apt_real _start, const apt_real _width, const apt_real _end )
+	histogram( const double _start, const double _width, const double _end )
 	{
 		cnts_lowest = 0.f;
 		cnts_highest = 0.f;
@@ -106,8 +72,16 @@ public :
 				catch (bad_alloc &croak) {
 					stopping("Unable to allocate memory in histogram class object");
 				}
-				tmp = 1.0 / (binend-binstart) * static_cast<apt_real>(nbins);
+				tmp = 1.0 / (binend-binstart) * static_cast<double>(nbins);
 				valid = true;
+			}
+			else {
+				binstart = 0.f;
+				binwidth = 0.f;
+				binend = 0.f;
+				tmp = 0.f;
+				nbins = 0;
+				valid = false;
 			}
 		}
 		else {
@@ -119,13 +93,13 @@ public :
 			valid = false;
 		}
 	}
-	//void construct( const apt_real _start, const apt_real _width, const apt_real _end );
 
 	inline void add( const apt_real x )
 	{
 		//increment cnts in specific bin at correct bin
-		if ( x >= binstart && x <= binend ) {
-			apt_real rb = (x-binstart) * tmp;
+		double xx = x;
+		if ( xx >= binstart && xx <= binend ) {
+			apt_real rb = (xx-binstart) * tmp;
 			unsigned int b = static_cast<unsigned int>(floor(rb));
 			if ( b < nbins )
 				cnts.at(b) += 1.0;
@@ -133,10 +107,10 @@ public :
 				cnts_highest += 1.0;
 		}
 		else {
-			if ( x < binstart ) {
+			if ( xx < binstart ) {
 				cnts_lowest += 1.0;
 			}
-			if ( x > binend ) {
+			if ( xx > binend ) {
 				cnts_highest += 1.0;
 			}
 		}
@@ -145,8 +119,9 @@ public :
 	inline void add_nodump( const apt_real x )
 	{
 		//assumes increment cnts in specific bin at correct bin
-		if ( x >= binstart && x <= binend ) {
-			apt_real rb = (x-binstart) * tmp;
+		double xx = x;
+		if ( xx >= binstart && xx <= binend ) {
+			apt_real rb = (xx-binstart) * tmp;
 			unsigned int b = static_cast<unsigned int>(floor(rb));
 			if ( b < nbins ) { //##MK::correct for RDF ?
 				cnts.at(b) += 1.0;
@@ -157,31 +132,31 @@ public :
 
 	inline void normalize()
 	{
-		apt_real tcnts = 0.0;
+		double tcnts = 0.f;
 		for ( unsigned int b = 0; b < nbins; ++b )
 			tcnts += cnts.at(b); //get total counts
-		if ( tcnts >= 1.0 ) { //at least one count
+		if ( tcnts >= (1.0-EPSILON) ) { //at least one count
 			for ( unsigned int b = 0; b < nbins; ++b )
 				cnts.at(b) /= tcnts;
 		}
 	}
 
-	inline apt_real report( const unsigned int b )
+	inline double report( const unsigned int b )
 	{
 		if ( b < nbins )
 			return cnts.at(b);
 		else
 			return 0.f;
 	}
-	inline apt_real start()
+	inline double start()
 	{
 		return binstart;
 	}
-	inline apt_real width()
+	inline double width()
 	{
 		return binwidth;
 	}
-	inline apt_real end()
+	inline double end()
 	{
 		return binend;
 	}
@@ -190,15 +165,15 @@ public :
 		return nbins;
 	}
 
-	apt_real cnts_lowest;
-	vector<apt_real> cnts;
-	apt_real cnts_highest;
+	double cnts_lowest;
+	vector<double> cnts;
+	double cnts_highest;
 
 private:
-	apt_real binstart;
-	apt_real binwidth;
-	apt_real binend;
-	apt_real tmp;
+	double binstart;
+	double binwidth;
+	double binend;
+	double tmp;
 	unsigned int nbins;
 	bool valid;
 };

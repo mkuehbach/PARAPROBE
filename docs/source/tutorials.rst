@@ -6,8 +6,8 @@ Currently in the making...
  
 Contact
 ^^^^^^^
-Feel free to contact me_ in case you run problems or allow me_ to identify whether PARAPROBE supplies functionalities which can cater also your APT analyses needs! In case of bug reports please send always a console prompt (see *how to execute* section of this manual) of the simulation run and the xml input file to assist me in 
-diagnosing the issue.
+Please feel free to contact me (using my MPIE_ or BiGmax_ contact details). Whether its because you are facing problems with using PARAPROBE or want to recommend useful new features to include PARAPROBE. In case of bug reports please send always a console prompt (see *how to execute* section of this manual) of the simulation run and the xml input file to assist me in diagnosing the issue.
 
- .. _me: https://www.mpie.de/person/51206/2656491
+ .. _MPIE: https://www.mpie.de/person/51206/2656491
+ .. _BiGmax: https://bigmax.iwww.mpg.de/39151/bigmax-software-engineering-consultant
 

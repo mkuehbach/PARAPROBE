@@ -52,51 +52,112 @@
 <h1><strong>Setup</strong><a class="headerlink" href="#setup" title="Permalink to this headline">¶</a></h1>
 <div class="section" id="which-operating-system-is-supported">
 <h2>Which operating system is supported?<a class="headerlink" href="#which-operating-system-is-supported" title="Permalink to this headline">¶</a></h2>
-<p>PARAPROBE is envisioned as a back-end high performance computing (HPC) solution for processing APT datasets.
-Therefore, it targets workstations and computing clusters running Linux. The compilation on a Windows system should in
-principle be technically possible, has so far, though, not been tested.</p>
+<p>PARAPROBE is a  high performance computing (HPC) back end solution for processing APT datasets. Therefore, it targets workstations and computing clusters, i.e. Linux-based operation systems. The compilation on a Windows system should in principle be technically possible, has so far, though, not been tested.</p>
 </div>
 <div class="section" id="how-large-datasets-are-supported">
 <h2>How large datasets are supported?<a class="headerlink" href="#how-large-datasets-are-supported" title="Permalink to this headline">¶</a></h2>
-<p>Currently, single APT measurements of at most 4.2 billion ions are supported. As of 2018, such successful tip measurement are
-to the best of my knowledge not standard. Please contact <a class="reference external" href="https://www.mpie.de/person/51206/2656491">me</a> if you have larger datasets, I am eager to modify my code to become
-capable as well to handle even such higher ion counts per single measurement.</p>
+<p>Currently, single APT measurements of at most 4.2 billion ions technically. Dataset sizes of 2.0 billion ions were tested thoroughly. As of 2018, such successful tip measurement are to the best of my knowledge not standard. Please contact <a class="reference external" href="https://www.mpie.de/person/51206/2656491">me</a> if you have larger datasets, I am eager to modify my code to become capable as well to handle even such higher ion counts per single measurement.</p>
 <blockquote>
 <div></div></blockquote>
 </div>
 <div class="section" id="what-are-the-minimum-hardware-requirements">
 <h2>What are the minimum hardware requirements?<a class="headerlink" href="#what-are-the-minimum-hardware-requirements" title="Permalink to this headline">¶</a></h2>
-<p><strong>Memory</strong> — data mining APT datasets is 3d point data processing. Therefore, hardware minimum requirements depend primarily and necessarily on the total number of ions. Sufficient system main memory is required to hold the point data and temporary partial duplicates of it during processing. Internally, each ion is represented as a structure of three 32-bit floating point numbers surplus one 32-bit unsigned integer, hence requiring 16B per ion.</p>
-<blockquote>
-<div></div></blockquote>
-<p><strong>CPU</strong> — virtually all modern workstation and cluster computing processors are capable of executing PARAPROBE, yet their cost-benefit-ratio and speed of doing so may differ substantially. Consequently, claiming minimum hardware requirements is pointless.</p>
-<blockquote>
-<div></div></blockquote>
+<p><strong>Memory</strong> — data mining APT datasets is 3d point data processing. Therefore, hardware minimum requirements depend primarily and necessarily on the total number of ions. Sufficient system main memory is required to hold the point data and temporary partial duplicates of it during processing. Internally, each ion is represented as a structure of three 32-bit floating point numbers surplus one 32-bit unsigned integer, hence requiring 16B per ion. Quantitative results are detailed in the initial PARAPROBE paper (see Reference section).</p>
+<p><strong>CPU</strong> — virtually all modern workstation and cluster computing processors are capable of executing PARAPROBE. The cost-benefit-ratio and speed of doing so may differ substantially so. Consequently, claiming minimum hardware requirements is pointless. Quantitative results (see Reference section) document better than 50% strong scaling efficiency for up to 36 threads for all analysis tasks except executing the DBScan algorithm.</p>
 <p><strong>GPU</strong> — PARAPROBE currently does not utilize GPU parallelism.</p>
 </div>
 <div class="section" id="which-prerequisites-are-necessary">
 <h2>Which prerequisites are necessary?<a class="headerlink" href="#which-prerequisites-are-necessary" title="Permalink to this headline">¶</a></h2>
-<div class="line-block">
-<div class="line">PARAPROBE depends on third-party open source software and open source Linux tools.</div>
-<div class="line">Please follow these first steps to assure you have a working system</div>
-<div class="line">and able to compile and execute PARAPROBE.</div>
+<p>PARAPROBE depends on third-party open source software and open source Linux tools. Please follow these first steps to assure you have a working system
+that is capable of compiling the PARAPROBE source code, link to the libraries required, and execute.</p>
+<ul>
+<li><p class="first">Check for a working installation of a <strong>C/C++ build system</strong> including <strong>cmake</strong> and <strong>make</strong>.</p>
+</li>
+<li><p class="first">You need a working installation of the <strong>Boost C++ libraries</strong>. Further details about <a class="reference external" href="https://www.boost.org/">Boost</a> here.</p>
+</li>
+<li><p class="first">A default installation of Ubuntu in at least version 17.10 provided me with the above-mentioned prerequisites.</p>
+</li>
+<li><p class="first">For Ubuntu 16.04 LTS an installation of the newest Boost version is necessary.</p>
+</li>
+<li><p class="first">PARAPROBE has been tested to compile with the GNU and the Intel Parallel Studio 2018 compiler.</p>
+</li>
+<li><p class="first">Given the fact that PARAPROBE uses the IntelMKL library, using it out of the box demands to use the Intel compiler.</p>
+</li>
+<li><p class="first">You need a working installation of an <strong>MPI_ (Message Passing Interface)</strong> <a class="reference external" href="https://www.mpich.org/downloads/">API</a> library.</p>
+</li>
+<li><p class="first">The minimum threading support level of the MPI implementation required is <strong>MPI_THREAD_FUNNELED</strong>.</p>
+</li>
+<li><p class="first">MPI libraries are not installed by default. They are available here <a class="reference external" href="https://www.mpich.org/downloads">MPICH</a> . It is recommended to use the IntelMPI library.</p>
+</li>
+<li><p class="first">PARAPROBE uses the <strong>Computational Geometry Algorithms Library (CGAL)</strong>. It has own prerequisites.</p>
+</li>
+<li><p class="first">At least the two arbitrary precision arithmetic libraries <strong>GMP_</strong> and <strong>MPFR_</strong>.</p>
+</li>
+<li><p class="first">Thus, the first step is to prepare these libraries accordingly.</p>
+</li>
+<li><p class="first"><a class="reference external" href="https://doc.cgal.org/latest/Manual/installation.html">CGAL</a> can be downloaded CGAL <a class="reference external" href="https://github.com/CGAL/cgal/releases/download/releases%2FCGAL-4.12/CGAL-4.12.tar.xz">here</a></p>
+</li>
+<li><p class="first">Next, it suffices to activate the header-only mode of the CGAL library. Do so by modifying the line
+containing <em>enable cgal header only</em> in the CMakeLists.txt file topmost in the CGAL code folder.</p>
+</li>
+<li><p class="first">Using the header-only library worked for me with both the CGAL version 4.11.3 and 4.12. It failed so far for 4.13.</p>
+</li>
+<li><p class="first">Within the top level CGAL code folder configure once the library by typing:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">cmake</span> <span class="o">-</span><span class="n">DCGAL_DIR</span><span class="o">=&lt;</span><span class="n">CGALLocation</span><span class="o">&gt;</span> <span class="o">.</span>
+</pre></div>
 </div>
-<ul class="simple">
-<li>Check for a working installation of a <strong>C/C++ build system</strong> including <strong>cmake</strong> and <strong>make</strong>.</li>
-<li>You need a working installation of the <strong>Boost C++ libraries</strong>. Further details about <a class="reference external" href="https://www.boost.org/">Boost</a> here.</li>
-<li>A default installation of Ubuntu in at least version 17.10 provided me with the above-mentioned prerequisites.</li>
-<li>PARAPROBE has been tested to compile with the GNU and the Intel Parallel Studio 2018 compiler.</li>
-<li>You need a working installation of an <a class="reference external" href="https://www.mcs.anl.gov/research/projects/mpi/">MPI</a> (Message Passing Interface) <a class="reference external" href="https://www.mpich.org/downloads/">API</a> library.</li>
-<li>The minimum threading support level of the MPI implementation required is <strong>MPI_THREAD_FUNNELED</strong>.</li>
-<li>MPI libraries are not installed by default. They are available here <a class="reference external" href="https://www.mpich.org/downloads">MPICH</a> .</li>
-<li>PARAPROBE uses the <strong>Computational Geometry Algorithm Library</strong> (<a class="reference external" href="https://doc.cgal.org/latest/Manual/installation.html">CGAL</a>).</li>
-<li>This library requires own prerequisites, at least the two arbitrary precision arithmetic libraries <a class="reference external" href="https://gmplib.org/">GMP</a> and <a class="reference external" href="https://www.mpfr.org/">MPFR</a> .</li>
-<li>Thus, the first step is to prepare these libraries accordingly.</li>
-<li>CGAL can be downloaded CGAL <a class="reference external" href="https://github.com/CGAL/cgal/releases/download/releases%2FCGAL-4.12/CGAL-4.12.tar.xz">here</a></li>
-<li>Next, it is essential to activate the HEADERONLY library mode within the CGAL. Do so by modifying the line containing
-<em>enable cgal header only</em> in the CMakeLists.txt document topmost in the CGAL code folder</li>
-<li>Within the toplevel of the CGAL code folder configure once the library by typing cmake .</li>
-<li>The PARAPROBE CMakeLists.txt should now be able to use the CGAL functionalities.</li>
+</li>
+<li><p class="first">Please note that the angle brackets must not be typed into the command line as they only mark the input parameter!</p>
+</li>
+<li><p class="first">The PARAPROBE CMakeLists.txt should now be able to use the CGAL functionalities.</p>
+</li>
+<li><p class="first">PARAPROBE utilitzes the <strong>Hierarchical Data Format (HDF5)</strong> library and the <strong>eXtensible Data Model and Format</strong> <a class="reference external" href="https://www.xdmf.org/index.php/Main_Page">XDMF</a></p>
+</li>
+<li><p class="first">Personally, I use a local installation of the <a class="reference external" href="https://www.hdfgroup.org/solutions/hdf5/">HDF5</a> library. This worked for me with version 1.10.2.</p>
+</li>
+<li><p class="first">I recommend to install the <a class="reference external" href="https://www.hdfgroup.org/downloads/hdfview/">HDFViewer</a> a tool for looking into the binary content of an H5 file.</p>
+</li>
+<li><p class="first">A local installation of HDF5 worked for me using the following procedure using version 1.10.2</p>
+</li>
+<li><p class="first">Starting from the PARAPROBE top level folder the Github repository contains a copy of a HDF5 source code tar archive, unpack it:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">cd</span> <span class="n">src</span><span class="o">/</span><span class="n">thirdparty</span><span class="o">/</span><span class="n">HDF5</span><span class="o">/</span><span class="n">CMake</span><span class="o">-</span><span class="n">hdf5</span><span class="o">-</span><span class="mf">1.10</span><span class="o">.</span><span class="mf">2.</span><span class="n">tar</span><span class="o">.</span><span class="n">gz</span>
+<span class="n">tar</span> <span class="o">-</span><span class="n">xvf</span> <span class="n">CMake</span><span class="o">-</span><span class="n">hdf5</span><span class="o">-</span><span class="mf">1.10</span><span class="o">.</span><span class="mf">2.</span><span class="n">tar</span><span class="o">.</span><span class="n">gz</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Make a local compile folder and make sure your environment has the compiler and MPI you want to use:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">mkdir</span> <span class="n">build</span>
+<span class="n">cd</span> <span class="n">build</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Configure a compilation script which inspects the technical details of your system to configure HDF5:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">cmake</span> <span class="o">-</span><span class="n">G</span> <span class="s2">&quot;Unix Makesfiles&quot;</span> <span class="o">-</span><span class="n">DCMAKE_BUILD_TYPE</span><span class="o">=</span><span class="n">Release</span> <span class="o">-</span><span class="n">DBUILD_SHARED_LIBS</span><span class="o">=</span><span class="n">OFF</span> <span class="o">-</span><span class="n">DBUILD_TESTING</span><span class="o">=</span><span class="n">ON</span> <span class="o">-</span><span class="n">DHDF5_BUILD_TOOLS</span><span class="o">=</span><span class="n">ON</span> <span class="o">-</span><span class="n">DHDF5_BUILD_FORTRAN</span><span class="o">=</span><span class="n">OFF</span> <span class="o">-</span><span class="n">DHDF5_ENABLE_Z_LIB_SUPPORT</span><span class="o">=</span><span class="n">OFF</span> <span class="o">-</span><span class="n">DHDF5_ENABLE_SZIP_ENCODING</span><span class="o">=</span><span class="n">OFF</span> <span class="o">../</span><span class="n">hdf5</span><span class="o">-</span><span class="mf">1.10</span><span class="o">.</span><span class="mi">2</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Compile the library from the source code:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">cmake</span> <span class="o">--</span><span class="n">build</span> <span class="o">.</span> <span class="o">--</span><span class="n">config</span> <span class="n">Release</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Test it on the system:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">ctest</span> <span class="o">.</span> <span class="o">-</span><span class="n">C</span> <span class="n">Release</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Pack it into an archive and complete the setting up locally:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">cpack</span> <span class="o">-</span><span class="n">C</span> <span class="n">Release</span> <span class="n">CPackConfig</span><span class="o">.</span><span class="n">cmake</span>
+<span class="o">./</span><span class="n">HDF5</span><span class="o">-</span><span class="mf">1.10</span><span class="o">.</span><span class="mi">2</span><span class="o">-</span><span class="n">Linux</span><span class="o">.</span><span class="n">sh</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">For computing tessellations PARAPROBE builds on <strong>Chris Rycroft’s Voro++</strong> (<a class="reference external" href="https://math.lbl.gov/voro++/">Voro</a>). Its source code is compilation ready within src/thirdparty/voro.</p>
+</li>
+<li><p class="first">Atom probe crystallography analyses demand discrete Fourier transform algorithms. For this PARAPROBE utilizes the Intel Math Kernel Library (<a class="reference external" href="https://software.intel.com/en-us/performance-libraries">IMKL</a>).</p>
+</li>
+<li><p class="first">For many research purposes and students the library is open source (<a class="reference external" href="https://software.intel.com/en-us/performance-libraries">IMKL</a>).</p>
+</li>
 </ul>
 <blockquote>
 <div></div></blockquote>
@@ -104,51 +165,63 @@ capable as well to handle even such higher ion counts per single measurement.</p
 <div class="section" id="how-to-compile">
 <h2>How to compile?<a class="headerlink" href="#how-to-compile" title="Permalink to this headline">¶</a></h2>
 <p>Once all prerequisites are met, proceed to configure and compile PARAPROBE.</p>
-<ul class="simple">
-<li>Download the source from its git repository <strong>https://github.com/mkuehbach/PARAPROBE</strong></li>
+<ul>
+<li><p class="first">Download the source from its git repository <strong>https://github.com/mkuehbach/PARAPROBE</strong></p>
+</li>
 <li><dl class="first docutils">
 <dt>Unpack the repository such that finally the following ends up in a single folder, from now on referred to as the <strong>root</strong> folder.</dt>
-<dd><ul class="first last">
+<dd><ul class="first last simple">
 <li>a <strong>src</strong> subdirectory with the cpp and the h source code files,</li>
+<li>a <strong>thirdparty</strong> subdirectory with a compile-ready <strong>RapidXML</strong>, <strong>CGAL</strong>, <strong>Voro</strong>, <strong>HDF5</strong></li>
 <li>a <strong>build</strong> directory for storing the executable</li>
 <li>a <strong>XML control file</strong>.</li>
+<li>a <strong>scripts</strong> subdirectory with useful tools for processing PARAPROBE results further.</li>
 <li>Additionally, check that there is a <strong>CMakeLists.txt</strong> file in the root folder.</li>
 </ul>
 </dd>
 </dl>
 </li>
-<li>You can now rename, if you desire, the root folder to any Linux-conformant name.</li>
-<li>Next, utilize the top section in CMakeList.txt file to choose compiler and specify paths to local Boost and SIMD as well as switch
-on options and give location of HDF5 library if it should be used if in doubt, use OFF. bSIMD and HDF5 are not essential to the program.</li>
-<li>Next, open a console and dive into the <strong>build</strong> directory.</li>
-<li>If you now compile PARAPROBE for the first time type <strong>cmake -DCMAKE_BUILD_TYPE=Release -DCGAL_DIR=LOCALPATH ..</strong>.</li>
-<li>Replace LOCALPATH by the absolute path where the CGAL code folder is on your system.</li>
-<li>Now cmake inspects your system configuration to find compilers and libraries and generates a customized makefile for you.</li>
-<li>Next, or if compiling not for the first time, use this makefile by typing <strong>make</strong> to start the compilation process.</li>
-<li>Warnings about declared but unreferenced variables will appear they can be ignored.</li>
-<li>Upon success, you should now have an <strong>executable</strong> with the name as specified in the CMakeLists.txt within the build.</li>
-<li>Use this executable to perform APT post-processing.</li>
+<li><p class="first">You can now rename, if you desire, the root folder to any Linux-conformant name.</p>
+</li>
+<li><p class="first">Next, utilize the top section in CMakeList.txt file to choose compiler and specify the paths as detailed.</p>
+</li>
+<li><p class="first">Next, open a console and dive into the <strong>build</strong> directory.</p>
+</li>
+<li><p class="first">If you now compile PARAPROBE for the first time type:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">cmake</span> <span class="o">-</span><span class="n">DCMAKE_BUILD_TYPE</span><span class="o">=</span><span class="n">Release</span> <span class="o">-</span><span class="n">DCGAL_DIR</span><span class="o">=&lt;</span><span class="n">CGALLocation</span><span class="o">&gt;</span> <span class="o">..</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Replace &lt;CGALLocation&gt; by the string that specifies the absolute path where the CGAL code folder is on your system.</p>
+</li>
+<li><p class="first">Now cmake inspects your system configuration, finds compilers, libraries, which eventually results in a customized <strong>Makefile</strong>.</p>
+</li>
+<li><p class="first">Next, or if compiling not for the first time, use this makefile by initiate the compilation process:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">make</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first"><strong>Warnings</strong> will appear but can be ignored.</p>
+</li>
+<li><p class="first">Upon success, you should now have a PARAPROBE <strong>executable</strong> with the name as specified in the CMakeLists.txt within the build.</p>
+</li>
+<li><p class="first">Use this executable to perform APT post-processing. Always a <strong>XML</strong> control file, a <strong>RRNG</strong> rangefile, and eventually <strong>POS</strong>, <strong>EPOS</strong>, or <strong>APT</strong> measurement raw data file is necessary.</p>
+</li>
 </ul>
 </div>
 <div class="section" id="where-to-place-files">
 <h2>Where to place files?<a class="headerlink" href="#where-to-place-files" title="Permalink to this headline">¶</a></h2>
-<div class="line-block">
-<div class="line">The resulting executable expects the XML control file always in its current location folder!</div>
-<div class="line">Relative indexing is utilized. Other than that restriction, the executable can be renamed and relocated.</div>
-<div class="line">The latter enables PARAPROBE batch queue processing.</div>
-</div>
+<p>The resulting executable expects the XML control file always in its current location folder! Relative indexing is utilized. Other than that restriction, the executable can be renamed and relocated. This enables to script batch queues for PARAPROBE.</p>
 </div>
 <div class="section" id="optimization">
 <h2>Optimization<a class="headerlink" href="#optimization" title="Permalink to this headline">¶</a></h2>
 <p>If desired, adjust the level of compiler optimization via the OPTLEVEL variable in the CMakeLists.txt upper section.
-OPTLEVEL “-O0” means no optimization and should be utilized for debugging purposes only, while “-O3” is the maximum and recommended level for production tasks. Improvements between the two extremes vary between a factor of 2 - 5 faster with maximum optimization compared to without.</p>
+OPTLEVEL “-O0” means no optimization and should be utilized for debugging purposes only, while “-O3 -march=native” is the maximum and recommended level for production tasks. Such highly compile time optimized code is not necessarily portable.
+Improvements between the two extremes vary between a factor of 2 - 5 faster with maximum optimization compared to without.</p>
 </div>
 <div class="section" id="troubleshooting">
 <h2>Troubleshooting?!<a class="headerlink" href="#troubleshooting" title="Permalink to this headline">¶</a></h2>
-<p>If in between the compilation process unrecoverable errors occur, attempt first a <strong>make clean</strong> command.
-If this does not help: Delete everything in the build folder except for the <strong>XML control file</strong> and start over with <strong>cmake -DCMAKE_BUILD_TYPE=Release ..</strong>.</p>
-<p>I faced challenges when attempting to compile the CGAL in header-only mode with the Intel Parallel Suite compilers and tools.
-Therefore, I recommend so far to use the GNU compiler and the MPICH installation.</p>
+<p>If unrecoverable errors occur during the compilation process, attempt first to instruct a <strong>make clean</strong> command. This will delete potentially incompletely processed source code files. If this does not help: delete everything in the build folder except for the <strong>XML control file</strong> and start over with <strong>cmake -DCMAKE_BUILD_TYPE=Release -DCGAL_DIR=&lt;CGALLocation&gt; ..</strong>.</p>
 </div>
 </div>
 

@@ -32,9 +32,10 @@
 #ifndef __PARAPROBE_SOLVERHDL_H__
 #define __PARAPROBE_SOLVERHDL_H__
 
-#include "PARAPROBE_HPDBScan.h"
-//#include "PARAPROBE_Profiling.h"
 
+#include "PARAPROBE_VoroXX.h"
+
+//forward declaration classes
 class solverHdl;
 class reconstructor;
 class threadmemory;
@@ -44,6 +45,9 @@ class surfacer;
 class rndlabeler;
 class horderdist;
 class clusterer;
+class crystindexer;
+class aptcrystHdl;
+//##MK::class solver;
 
 
 class solver
@@ -59,10 +63,13 @@ public:
 	void volume_binning();
 	void surface_triangulation();
 	void surface_distancing2(); //##MK::faulty
-	void characterize_distances();
+	//##MK::deprecated VTK output void characterize_distances();
+	void characterize_tip();
 	void init_spatialindexing();
+	void characterize_crystallography();
 	void characterize_spatstat();
 	void characterize_clustering();
+	void tessellate_tipvolume();
 
 	//computed location of ions in reconstructed space to accept during datamining spatially unorganized copy but reconstructed from solverHdl
 	reconstructor* recon;
@@ -72,6 +79,8 @@ public:
 	rndlabeler* rndmizer;
 	horderdist* hometrics;
 	clusterer* cldetect;
+	aptcrystHdl* aptcrystallo;
+	tessHdl* tessellator;
 
 	//MK::two structures to split the process of reconstruction from the rawdata_pos/_epos, sure we could pass the rawdata but then we
 	//lack flexibility to instantiate multiple reconstructions by different algorithms hosted in the same solver
@@ -91,7 +100,7 @@ public:
 	~threadmemory();
 
 	decompositor* owner;
-	bool init_localmemory( const apt_xyz zmin, const apt_xyz zmax, const bool mlast );
+	bool init_localmemory( p6d64 const & mybounds, p3d64 const & myhalo, const bool mlast );
 	bool read_localions();
 	inline size_t rectangular_transfer( const apt_xyz pos, const apt_xyz mi, const apt_xyz w, const apt_xyz mx, const size_t nvxl );
 	void binning( sqb const & vxlgrid );
@@ -107,6 +116,19 @@ public:
 	vector<size_t> ion2bin;
 	vector<apt_xyz> ion2surf;
 
+	//##MK::optimize
+	vector<p3dm3> ionpp3_tess;
+	vector<unsigned int> ionpp3_ionpp3idx;
+	/*vector<unsigned int> distinfo_tess;
+	//MK::SAME LENGTH THEN ionpp3_tess one-to-one correspondence
+	//MK::stores an array index for ionpp3 which allows to identify which ion the respective entry in ionpp3_tess represents!
+	//MK::avoids to store for every ion always an ID and thereby always to carry for every analysis task
+	//larger array cache length than necessary, remind: only when the distancing info is to be used again
+	//outside of the threadmemory scope, for instance in the Voro tess to identify how close an ion is
+	//to the tip surface and use this information to eliminate cells with bias incorrect topology and geometry
+	//MK::IN LATTER CASE ALLOWS ONLY to QUERY DISTANCE FOR VALIDZONE_IONS as their order of
+	//populating ionpp3_tess during read_localions is instructed to proceed order preserving!*/
+
 	//##MK::optimize, idea for instance, set up KDTree immediately would replace ionpp3 by ionpp3_kdtree and ion2surf by ion2surf_kdtree
 	vector<p3dm1> ionpp3_kdtree;
 	vector<apt_xyz> ion2surf_kdtree;
@@ -116,6 +138,8 @@ public:
 	inline size_t get_memory_consumption();
 
 private:
+	p6d64 tessmii;
+	p3d64 tesshalowidth;
 	apt_real zmi;
 	apt_real zmx;
 	bool melast;
@@ -135,9 +159,10 @@ public:
 	void reportpartitioning();
 
 	vector<threadmemory*> db;				//threadlocal memory objects better suited for ccNUMA architectures
-
+	vector<p6d64> spatialsplits;			//where is the point cloud split
 	sqb rve;								//spatial bin geometry
 	aabb3d tip;								//rigorous tip AABB bounds
+	p3d64 halothickness;					//how much halo should be provided if tessellation desired
 	bool kdtree_success;
 
 private:
@@ -155,7 +180,6 @@ public:
 
 	solver* owner;
 
-	//bool reconstruction_accept_synthetic( void );
 	bool reconstruction_accept_sequential( void );
 	bool reconstruction_default_sequential( void );
 
@@ -216,6 +240,8 @@ public:
 
 	bool convexhull();
 	bool marchingcubes();
+
+	void report_tipsurface();
 
 	bool build_rtree();
 	void chop_rtree();
@@ -280,11 +306,14 @@ public:
 	~horderdist();
 
 	void initialize_descrstat_tasks();
-	//void compute_generic_spatstat1();	//##MK::deprecated, threads work individually on only their own data, while this minimizes fishing in neighboring thread's memory, the downside is that for high thread team member counts individuals are passed too thin regions (close to bottom or top of tip) and Settings::SpatStatRadiusMax is large they do nothing and idle
 	void compute_generic_spatstat2();   //for this reason here the thread team works successively through the region, with each thread team member getting a chunk of the region, downside here is thread fish frequently in memory of neighboring thread, but maximize load partitioning
-	void report_apriori_descrstat1( const string whichmetric, const string whichtarget, const string againstwhich, histogram & hist );
-	void report_apriori_descrstat2( const long tsktype, const string whichmetric, const string whichtarget, const string againstwhich, histogram & hist );
+	void compute_generic_spatstat3(); 	//removed at bounds check and repacks neighbor1dm1 results to avoid if ( type != desired ) continue branch mispredictions
 
+	void report_apriori_descrstat2( const long tsktype, const string whichmetric, const string whichtarget, const string againstwhich, histogram & hist );
+	void report_apriori_descrstat3( const string whichtarget, const string againstwhich, discrhistogram & hist );
+	//##MK::single precision cumsum issues do not use! void report_apriori_descrstat4( const string whichtarget, const string againstwhich, npc3d & pcf );
+	void report_npc3d_bincenters_hdf5( npc3d & pcf );
+	void report_npc3d_histvalues_hdf5( const string whichtarget, const string againstwhich, npc3d & pcf );
 	solver* owner;
 
 private:
@@ -302,8 +331,8 @@ public:
 
 	void initialize_clustering_tasks( void );
 	void maximum_separation_method( void );
-	void maximum_separation_report( const string whichtarget, const string againstwhich,
-			vector<dbscanres> const & results );
+	void maximum_separation_report( const string whichtarget,
+			const string againstwhich, vector<dbscanres> const & results );
 
 	solver* owner;
 
@@ -346,6 +375,147 @@ public:
 };
 
 
+struct vicsmeta
+{
+	apt_real R;
+	apt_real dR;
+	apt_real binner;
+	int NumberOfBins;
+	vicsmeta() : R(0.f), dR(0.f), binner(0.f), NumberOfBins(0) {}
+	vicsmeta( const apt_real _R, const apt_real _dR, const apt_real _binner, const int _nbins) :
+		R(_R), dR(_dR), binner(_binner), NumberOfBins(_nbins) {}
+};
+
+
+inline bool SortAscElevAzimuthPairs( const pair<apt_real,apt_real> & a, const pair<apt_real,apt_real> & b)
+{
+	return a.second < b.second;
+}
+
+
+struct vicsresult
+{
+	apt_real elevation;
+	apt_real azimuth;
+	pair<float,float> max1; //bin, val
+	pair<float,float> max2;
+	pair<float,float> max3;
+	/*bool fft_allc_success;
+	bool fft_plac_success;
+	bool fft_init_success;
+	bool fft_comp_success;
+	bool fft_free_success;
+	bool pad1;
+	bool pad2;
+	bool pad3;*/
+	vicsresult() : elevation(4*PI), azimuth(4*PI),
+			max1(make_pair(0.f,0.f)),
+			max2(make_pair(0.f,0.f)),
+			max3(make_pair(0.f,0.f)) {}
+	/*		fft_allc_success(false),
+			fft_plac_success(false),
+			fft_init_success(false),
+			fft_comp_success(false),
+			fft_free_success(false),
+			pad1(false), pad2(false), pad3(false) {}*/
+	vicsresult( const apt_real _el, const apt_real _az,
+			pair<float,float> const & _m1,
+			pair<float,float> const & _m2,
+			pair<float,float> const & _m3 ) :
+				elevation(_el), azimuth(_az),
+				max1(_m1), max2(_m2), max3(_m3) {}
+				/*fft_allc_success(false), fft_plac_success(false), fft_init_success(false),
+				fft_comp_success(false), fft_free_success(false),
+				pad1(false), pad2(false), pad3(false) {}*/
+};
+
+
+struct vicshistbin
+{
+	apt_real cnts;
+	apt_real FFTr;
+	apt_real FFTi;
+	apt_real pw;
+	vicshistbin() : cnts(0.f), FFTr(0.f), FFTi(0.f), pw(0.f) {}
+	vicshistbin(const apt_real _c, const apt_real _fr, const apt_real _fi, const apt_real _pw) :
+		cnts(_c), FFTr(_fr), FFTi(_fi), pw(_pw) {}
+};
+
+
+
+
+struct vicsfftsummary
+{
+	unsigned int threadID;
+	unsigned int nFFTsSuccess;
+	unsigned int nFFTsFailed;
+	unsigned int nIons;
+	vicsfftsummary() : threadID(0), nFFTsSuccess(0), nFFTsFailed(0), nIons(0) {}
+	vicsfftsummary( const unsigned int _thr, const unsigned int _ffty,
+			const unsigned int _fftn, const unsigned int _ni ) :
+		threadID(_thr), nFFTsSuccess(_ffty), nFFTsFailed(_fftn), nIons(_ni) {}
+};
+
+
+class vics_materialpoint_result
+{
+public:
+	vics_materialpoint_result();
+	vics_materialpoint_result( const p3d here );
+	~vics_materialpoint_result();
+
+	p3d MatPointPos;
+	vicsfftsummary FFTSummary;
+	vector<vicsresult> ElevAzimTblSummary;
+	//vector<vector<vicshistbin>> ElevAzimTblHistogram;
+};
+
+
+class crystindexer
+{
+public:
+	crystindexer();
+	~crystindexer();
+
+	void configure();
+
+	/*vicsresult ExecutePeaksFinding1D( vector<pair<double,double>> & CntsVsFreq );
+	vicsfftstatus ExecuteSingleDiscreteFFT( vector<unsigned int> const & in, vector<pair<double,double>> & out );
+	vicsresult SingleElevationAzimuth( const apt_real ee, const apt_real aa,
+			vector<d3d> const & ions, vicsfftsummary & diary );
+	void vicsmethod_core_incrementalfft( p3d const & target, vector<d3d> const & cand );*/
+	void vicsmethod_core_incrementalfft2( p3d const & target, vector<d3d> const & cand );
+	//void vicsmethod_core_batchfft_simd( p3d const & target, vector<d3d> const & cand );
+
+	solver* owner;
+
+	vicsmeta info;
+	vector<float> window_coeff;
+	vector<vics_materialpoint_result> res;
+};
+
+
+class aptcrystHdl
+{
+public:
+	aptcrystHdl();
+	~aptcrystHdl();
+
+	void compute_crystallography_definegrid();
+	void compute_crystallography_vicsmethod();
+	void report_crystallography_results();
+	void report_crystallography_results2();
+	void delete_crystallography_results();
+
+	solver* owner;
+	cuboidgrid3d probehere;
+	vector<p3d> samplingpoints;
+	vector<p2d> elevazimpairs;
+	vector<crystindexer*> workers;
+};
+
+
+
 
 
 class solverHdl
@@ -370,6 +540,7 @@ public:
 #endif
 	bool compare_epos_pos( void );
 	bool identify_ions( void );
+	bool generate_hdf5_resultsfile();
 	void delete_rawdata( void );
 
 	/*
@@ -401,6 +572,11 @@ public:
 
 	class PeriodicTable mypse;									//periodic table instance to manage iontype identification
 
+	xdmfHdl xdmfmetaHdl;
+	h5Hdl resultsh5Hdl;
+	h5Hdl clusth5Hdl;
+	h5Hdl crysth5Hdl;
+	//h5Hdl voronoih5Hdl;
 	profiler tictoc;
 
 private:

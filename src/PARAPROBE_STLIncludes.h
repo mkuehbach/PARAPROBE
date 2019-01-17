@@ -50,20 +50,29 @@
 #include <iterator>
 #include <utility>
 
-
 #include <random>
 #include <set>
 
+#include <complex>
+
+
+//low level stuff to interaction with operating system
 //#define NDEBUG
 #include <assert.h>
-
-
 #include <stdint.h>
+#include <ios>
 
-//C header for querying file size
+//C header stuff to pull low level system and process status pieces of information
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+//boost
+#include <boost/algorithm/string.hpp>
+#include <boost/math/special_functions/bessel.hpp>
+
+
+#define SYSTEMSPECIFIC_POSIX_PAGESIZE				(_SC_PAGE_SIZE) 	//##MK::some systems' POSIX library implements _SC_PAGESIZE
 
 //forward declaration for global scope
 using namespace std;

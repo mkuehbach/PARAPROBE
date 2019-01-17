@@ -199,6 +199,8 @@ public:
 	//! Validate the tree.
 	void validate() const;
 
+	void report_tree( const string csv_fn );
+
 private:
 	/// The index of the root node.
 	unsigned int root;

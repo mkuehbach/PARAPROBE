@@ -387,7 +387,8 @@ public:
     /*dbscanres summarize1( TypeSpecDescrStat const & tskdetails, bool const * interior, sqb & vgrd,
     		vector<p3dm1> & ioncloud, const unsigned int maxtypeid, const unsigned int tid, const unsigned int rid );*/
     dbscanres summarize2( TypeSpecDescrStat const & tskdetails, bool const * interior, sqb & vgrd,
-        		vector<p3dm1> & ioncloud, const unsigned int maxtypeid, const unsigned int tid, const unsigned int rid );
+        		vector<p3dm1> & ioncloud, const unsigned int maxtypeid, const unsigned int tid, const unsigned int rid,
+				h5Hdl & iohdl );
 
 //public:
     HPDBSCAN(const std::vector<p3dm1>& ions);
@@ -471,12 +472,29 @@ public:
 	~clusterHdl();
 
 	void boundary_contact_analysis( bool const * inside, sqb & vgrd );
-	void report_size_distr( const string whichtarget, const string againstwhich,
+	void report_size_distr_csv( const string whichtarget, const string againstwhich,
 			const unsigned int tid, const unsigned int runid );
 	void report_size_distr2( const string whichtarget, const string againstwhich,
 			const unsigned int tid, const unsigned int runid, const bool excludeboundary );
 	void report_size_distr_vtk( const string whichtarget, const string againstwhich,
 			const unsigned int tid, const unsigned int runid );
+	void report_size_distr_hdf5( const string whichtarget, const string againstwhich,
+			const unsigned int tid, const unsigned int runid, h5Hdl & h5io );
+
+    inline const size_t population( const bool excludeboundary ) const
+    {
+        if ( excludeboundary == false ) {
+        	return this->precipitates.size();
+        }
+        else {
+        	size_t pop = 0;
+        	for( auto it = this->precipitates.begin(); it != this->precipitates.end(); ++it ) {
+        		if ( it->has_boundary_contact() == false )
+        			++pop;
+        	}
+        	return pop;
+        }
+    }
 
 	vector<cl3d> precipitates;
 };

@@ -145,6 +145,11 @@ struct kd_tree
 
 	void range_rball_noclear_nosort_external(const p3dm1 target, const vector<p3dm1> & sortedpoints, const apt_xyz radius_sqrd, vector<nbor> & result );
 	void range_rball_noclear_nosort(const size_t idx, const vector<p3dm1> & sortedpoints, const apt_xyz radius_sqrd, vector<nbor> & result );
+	void range_rball_noclear_nosort_external_p3dm1(const p3dm1 target, const vector<p3dm1> & sortedpoints, const apt_xyz radius_sqrd, vector<p3dm1> & result );
+	void range_rball_noclear_nosort_p3dm1(const size_t idx, const vector<p3dm1> & sortedpoints, const apt_xyz radius_sqrd, vector<p3dm1> & result );
+	void range_rball_noclear_nosort_p3d( const p3dm1 target, vector<p3dm1> const & sortedpoints, const apt_xyz radius_sqrd, vector<p3dm1> & result );
+
+
 	void range_rball_noclear_nosort_indices(const size_t idx, const vector<p3dm1> & sortedpoints, const apt_xyz radius_sqrd, vector<size_t> & result );
 
 	inline p3d get_min();

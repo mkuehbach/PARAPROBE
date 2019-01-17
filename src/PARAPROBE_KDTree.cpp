@@ -650,6 +650,353 @@ void kd_tree::range_rball_noclear_nosort(const size_t idx, const vector<p3dm1> &
 }
 
 
+
+
+
+
+void kd_tree::range_rball_noclear_nosort_external_p3dm1(const p3dm1 target, const vector<p3dm1> & sortedpoints, const apt_xyz radius_sqrd, vector<p3dm1> & result )
+{
+	//MK::perform a spatial range query with a KDTree of a neighboring thread
+	//MK::for these threadlocal KDTrees though may query points outside the neighboring threads local point portion, in that case
+	//sortedpoints does not contain the target
+	const size_t stack_size = 32;
+	const cuboid aabb(min, max);
+	//target is passed because not contained in sortedpoints of neighboring thread, const p3dm1 target = sortedpoints[idx];
+
+	traverse_task tasks[stack_size] = {aabb, 0, 0, aabb.outside_proximity(target)}; //first box, first node, dim, distance to first
+	int current_task = 0;
+
+	//MK::function does neither clear results array beforehand nor sorts it afterwards!
+	do
+	{
+		const traverse_task &task = tasks[current_task];
+		if (task.d > radius_sqrd) {
+			--current_task;
+			continue;
+		}
+
+		const node &n = nodes[task.node];
+		if ( is_leaf(n) == true ) {
+			//if n is a node n.i0 and n.i1 specify contiguous range of points on SORTED!! sortedpoints
+			for(size_t i = n.i0; i <= n.i1; ++i) {
+				//##MK::do SIMD
+				const p3dm1 query = sortedpoints[i];
+				const apt_xyz d = euclidean_sqrd(target, query);
+				if ( d > radius_sqrd ) {
+					continue;
+				} else {
+					//if ( target != query ) {//MK::cannot happen that target is query because target is not in sortedpoints, therefore the function is external
+						result.push_back( query );
+					//}
+				}
+			}
+			--current_task;
+			continue;
+		}
+
+		traverse_task near;
+		traverse_task far;
+		//assert( n.dimdebug == task.dim );
+		if ( task.dim == PARAPROBE_XAXIS ) {
+			const apt_xyz splitposx = n.splitpos; //MK::using node-local piece of information rather than probing random memory position
+			const cuboid left = cuboid( task.bx.min, p3d(splitposx, task.bx.max.y, task.bx.max.z) ); //#####MK::z cordinate of point...
+			const cuboid right = cuboid( p3d(splitposx, task.bx.min.y, task.bx.min.z), task.bx.max );
+			if ( target.x <= splitposx ) {
+				near.bx = left;
+				near.node = n.i0;
+				far.bx = right;
+				far.node = n.i1;
+			}
+			else {
+				near.bx = right;
+				near.node = n.i1;
+				far.bx = left;
+				far.node = n.i0;
+			}
+		}
+		else if ( task.dim == PARAPROBE_YAXIS ) {
+			const apt_xyz splitposy = n.splitpos;
+			const cuboid lower = cuboid( task.bx.min, p3d(task.bx.max.x, splitposy, task.bx.max.z) );
+			const cuboid upper = cuboid( p3d(task.bx.min.x, splitposy, task.bx.min.z), task.bx.max );
+			if ( target.y <= splitposy ) {
+				near.bx = lower;
+				near.node = n.i0;
+				far.bx = upper;
+				far.node = n.i1;
+			}
+			else {
+				near.bx = upper;
+				near.node = n.i1;
+				far.bx = lower;
+				far.node = n.i0;
+			}
+		}
+		else {
+			const apt_xyz splitposz = n.splitpos;
+			const cuboid back = cuboid( task.bx.min, p3d(task.bx.max.x, task.bx.max.y, splitposz) );
+			const cuboid front = cuboid( p3d(task.bx.min.x, task.bx.min.y, splitposz), task.bx.max );
+			if ( target.z <= splitposz ) {
+				near.bx = back;
+				near.node = n.i0;
+				far.bx = front;
+				far.node = n.i1;
+			}
+			else {
+				near.bx = front;
+				near.node = n.i1;
+				far.bx = back;
+				far.node = n.i0;
+			}
+		}
+
+		size_t next_dim = ((task.dim + 1) > PARAPROBE_ZAXIS) ? PARAPROBE_XAXIS : (task.dim + 1); //task.dim++;
+
+		//assert( near.bx.outside_proximity(target) == 0.0 ); //##MK:::DEBUG
+		near.d = 0.; //##MK:: should be not significant so set to ... ##### 0.;
+		near.dim = next_dim;
+
+		far.d = far.bx.outside_proximity(target);
+		far.dim = next_dim;
+
+		tasks[current_task] = far; //MK::near must be processed before far!
+		++current_task;
+
+		assert( static_cast<size_t>(current_task) < stack_size);
+		tasks[current_task] = near;
+
+	} while ( current_task != -1 );
+}
+
+
+void kd_tree::range_rball_noclear_nosort_p3dm1(const size_t idx, const vector<p3dm1> & sortedpoints, const apt_xyz radius_sqrd, vector<p3dm1> & result )
+{
+	//MK::performs a spatial range query with a KDTree for which the target point is in the sortedpoints --> applies to domain global KDTrees
+	//MK::threadlocal KDTrees though may query points outside the neighboring threads local point portion, in that case
+	//sortedpoints does not contain the target
+	const size_t stack_size = 32;
+	const cuboid aabb(min, max);
+	const p3dm1 target = sortedpoints[idx];
+
+	traverse_task tasks[stack_size] = {aabb, 0, 0, aabb.outside_proximity(target)}; //first box, first node, dim, distance to first
+	int current_task = 0;
+
+	//MK::function does neither clear results array beforehand nor sorts it afterwards!
+	do
+	{
+		const traverse_task &task = tasks[current_task];
+		if (task.d > radius_sqrd) {
+			--current_task;
+			continue;
+		}
+
+		const node &n = nodes[task.node];
+		if ( is_leaf(n) == true ) {
+			//if n is a node n.i0 and n.i1 specify contiguous range of points on SORTED!! sortedpoints
+			for(size_t i = n.i0; i <= n.i1; ++i) {
+				//##MK::do SIMD
+				const p3dm1 query = sortedpoints[i];
+				const apt_xyz d = euclidean_sqrd(target, query);
+				if ( d > radius_sqrd ) {
+					continue;
+				} else {
+					if ( idx != i ) { //do not report myself!
+						result.push_back( query );
+					}
+				}
+			}
+			--current_task;
+			continue;
+		}
+
+		traverse_task near;
+		traverse_task far;
+		//assert( n.dimdebug == task.dim );
+		if ( task.dim == PARAPROBE_XAXIS ) {
+			const apt_xyz splitposx = n.splitpos; //MK::using node-local piece of information rather than probing random memory position
+			const cuboid left = cuboid( task.bx.min, p3d(splitposx, task.bx.max.y, task.bx.max.z) ); //#####MK::z cordinate of point...
+			const cuboid right = cuboid( p3d(splitposx, task.bx.min.y, task.bx.min.z), task.bx.max );
+			if ( target.x <= splitposx ) {
+				near.bx = left;
+				near.node = n.i0;
+				far.bx = right;
+				far.node = n.i1;
+			}
+			else {
+				near.bx = right;
+				near.node = n.i1;
+				far.bx = left;
+				far.node = n.i0;
+			}
+		}
+		else if ( task.dim == PARAPROBE_YAXIS ) {
+			const apt_xyz splitposy = n.splitpos;
+			const cuboid lower = cuboid( task.bx.min, p3d(task.bx.max.x, splitposy, task.bx.max.z) );
+			const cuboid upper = cuboid( p3d(task.bx.min.x, splitposy, task.bx.min.z), task.bx.max );
+			if ( target.y <= splitposy ) {
+				near.bx = lower;
+				near.node = n.i0;
+				far.bx = upper;
+				far.node = n.i1;
+			}
+			else {
+				near.bx = upper;
+				near.node = n.i1;
+				far.bx = lower;
+				far.node = n.i0;
+			}
+		}
+		else {
+			const apt_xyz splitposz = n.splitpos;
+			const cuboid back = cuboid( task.bx.min, p3d(task.bx.max.x, task.bx.max.y, splitposz) );
+			const cuboid front = cuboid( p3d(task.bx.min.x, task.bx.min.y, splitposz), task.bx.max );
+			if ( target.z <= splitposz ) {
+				near.bx = back;
+				near.node = n.i0;
+				far.bx = front;
+				far.node = n.i1;
+			}
+			else {
+				near.bx = front;
+				near.node = n.i1;
+				far.bx = back;
+				far.node = n.i0;
+			}
+		}
+
+		size_t next_dim = ((task.dim + 1) > PARAPROBE_ZAXIS) ? PARAPROBE_XAXIS : (task.dim + 1); //task.dim++;
+
+		//assert( near.bx.outside_proximity(target) == 0.0 ); //##MK:::DEBUG
+		near.d = 0.; //##MK:: should be not significant so set to ... ##### 0.;
+		near.dim = next_dim;
+
+		far.d = far.bx.outside_proximity(target);
+		far.dim = next_dim;
+
+		tasks[current_task] = far; //MK::near must be processed before far!
+		++current_task;
+
+		assert( static_cast<size_t>(current_task) < stack_size);
+		tasks[current_task] = near;
+
+	} while ( current_task != -1 );
+}
+
+
+void kd_tree::range_rball_noclear_nosort_p3d( const p3dm1 target, vector<p3dm1> const & sortedpoints, const apt_xyz radius_sqrd, vector<p3dm1> & result )
+{
+	//MK::performs a spatial range query with a KDTree for which the target point is not in the sortedpoints
+	const size_t stack_size = 32;
+	const cuboid aabb(min, max);
+
+	traverse_task tasks[stack_size] = {aabb, 0, 0, aabb.outside_proximity(target)}; //first box, first node, dim, distance to first
+	int current_task = 0;
+
+	//MK::function does neither clear results array beforehand nor sorts it afterwards!
+	do
+	{
+		const traverse_task &task = tasks[current_task];
+		if (task.d > radius_sqrd) {
+			--current_task;
+			continue;
+		}
+
+		const node &n = nodes[task.node];
+		if ( is_leaf(n) == true ) {
+			//if n is a node n.i0 and n.i1 specify contiguous range of points on SORTED!! sortedpoints
+			for(size_t i = n.i0; i <= n.i1; ++i) {
+				//##MK::do SIMD
+				const p3dm1 query = sortedpoints[i];
+				const apt_xyz d = euclidean_sqrd(target, query);
+				if ( d > radius_sqrd ) {
+					continue;
+				} else {
+					//cannot be myself!
+					result.push_back( query );
+				}
+			}
+			--current_task;
+			continue;
+		}
+
+		traverse_task near;
+		traverse_task far;
+		//assert( n.dimdebug == task.dim );
+		if ( task.dim == PARAPROBE_XAXIS ) {
+			const apt_xyz splitposx = n.splitpos; //MK::using node-local piece of information rather than probing random memory position
+			const cuboid left = cuboid( task.bx.min, p3d(splitposx, task.bx.max.y, task.bx.max.z) ); //#####MK::z cordinate of point...
+			const cuboid right = cuboid( p3d(splitposx, task.bx.min.y, task.bx.min.z), task.bx.max );
+			if ( target.x <= splitposx ) {
+				near.bx = left;
+				near.node = n.i0;
+				far.bx = right;
+				far.node = n.i1;
+			}
+			else {
+				near.bx = right;
+				near.node = n.i1;
+				far.bx = left;
+				far.node = n.i0;
+			}
+		}
+		else if ( task.dim == PARAPROBE_YAXIS ) {
+			const apt_xyz splitposy = n.splitpos;
+			const cuboid lower = cuboid( task.bx.min, p3d(task.bx.max.x, splitposy, task.bx.max.z) );
+			const cuboid upper = cuboid( p3d(task.bx.min.x, splitposy, task.bx.min.z), task.bx.max );
+			if ( target.y <= splitposy ) {
+				near.bx = lower;
+				near.node = n.i0;
+				far.bx = upper;
+				far.node = n.i1;
+			}
+			else {
+				near.bx = upper;
+				near.node = n.i1;
+				far.bx = lower;
+				far.node = n.i0;
+			}
+		}
+		else {
+			const apt_xyz splitposz = n.splitpos;
+			const cuboid back = cuboid( task.bx.min, p3d(task.bx.max.x, task.bx.max.y, splitposz) );
+			const cuboid front = cuboid( p3d(task.bx.min.x, task.bx.min.y, splitposz), task.bx.max );
+			if ( target.z <= splitposz ) {
+				near.bx = back;
+				near.node = n.i0;
+				far.bx = front;
+				far.node = n.i1;
+			}
+			else {
+				near.bx = front;
+				near.node = n.i1;
+				far.bx = back;
+				far.node = n.i0;
+			}
+		}
+
+		size_t next_dim = ((task.dim + 1) > PARAPROBE_ZAXIS) ? PARAPROBE_XAXIS : (task.dim + 1); //task.dim++;
+
+		//assert( near.bx.outside_proximity(target) == 0.0 ); //##MK:::DEBUG
+		near.d = 0.; //##MK:: should be not significant so set to ... ##### 0.;
+		near.dim = next_dim;
+
+		far.d = far.bx.outside_proximity(target);
+		far.dim = next_dim;
+
+		tasks[current_task] = far; //MK::near must be processed before far!
+		++current_task;
+
+		assert( static_cast<size_t>(current_task) < stack_size);
+		tasks[current_task] = near;
+
+	} while ( current_task != -1 );
+}
+
+
+
+
+
+
+
 void kd_tree::range_rball_noclear_nosort_indices(const size_t idx, const vector<p3dm1> & sortedpoints, const apt_xyz radius_sqrd, vector<size_t> & result )
 {
 	//MK::performs a spatial range query with a KDTree for which the target point is in the sortedpoints --> applies to domain global KDTrees

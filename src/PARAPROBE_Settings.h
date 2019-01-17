@@ -51,7 +51,8 @@ enum E_INPUTFILEFORMAT {
 
 
 enum E_ANALYSIS_MODE {
-	E_ANALYSIS_DEFAULT
+	E_ANALYZE_NOTHING,						//nothing
+	E_ANALYZE_IN_RECONSTRUCTION_SPACE		//spatial statistics, clustering, computational geometry
 };
 
 enum E_RECONSTRUCTION_ALGORITHM {
@@ -72,13 +73,39 @@ enum E_TIPSURFMESHING_ALGORITHM {
 };
 
 
+enum E_ALPHASHAPE_ALPHAVALUE_CHOICE {
+	E_ASHAPE_SMALLEST_SOLID,		//which value to use to compute the alpha shape from
+	E_ASHAPE_CGAL_OPTIMAL
+};
+
+
+enum E_VOLUME_TESSELLATION {
+	E_NOTESS,
+	E_VORONOI_TESS_LEANSTORE
+};
+
+
+enum E_CRYSTALLOGRAPHY {
+	E_NOCRYSTALLO,
+	E_ARAULLO_PETERS_METHOD
+};
+
+
+enum E_WINDOWING {
+	E_RECTANGULAR_WINDOW,
+	E_KAISER_WINDOW
+};
+
+
 enum E_DISTANCE_METRICS {
 	E_NOSPATSTAT,					//nothing
 	E_RDF,							//radial distribution function
 	E_NEAREST_NEIGHBOR,				//nearest neighbor
 	E_RIPLEYK,						//Ripley K
-	E_KNN,							//k-nearest if existent in SpatStatMax sphere
 	E_MKNN,							//collection of k-nearest if existent individually in SpatStatMax sphere
+	E_NPOINTCORR,					//n-point spatial correlations
+	E_COUNTNEIGHBORS,				//count number of neighbors within rmax
+
 	E_MULTISPATSTAT					//multiple analyses
 };
 
@@ -102,6 +129,10 @@ public:
 	static E_ANALYSIS_MODE AnalysisMode;				//what at all to work on?
 	static E_RECONSTRUCTION_ALGORITHM ReconstructionAlgo;
 	static E_TIPSURFMESHING_ALGORITHM SurfaceMeshingAlgo;
+	static E_ALPHASHAPE_ALPHAVALUE_CHOICE SurfaceAShapeAValue;
+	static E_VOLUME_TESSELLATION VolumeTessellation;
+	static E_CRYSTALLOGRAPHY ExtractCrystallographicInfo;
+	static E_WINDOWING	WindowingMethod;
 	static E_DISTANCE_METRICS SpatialDistributionTask;
 	static E_CLUSTERING ClusteringTask;
 	static E_NUMABINDING NumaBinding;
@@ -115,6 +146,10 @@ public:
 	static apt_real AdvIonPruneBinWidthMin;
 	static apt_real AdvIonPruneBinWidthIncr;
 	static apt_real AdvIonPruneBinWidthMax;
+
+	/*static apt_real DetBinWidth;
+	static apt_real SDMBinWidth;*/
+
 	static apt_real FlightLength;
 	static apt_real AtomicDensity;
 	static apt_real EvaporationField;
@@ -127,6 +162,22 @@ public:
 	static apt_real ICFMin;
 	static apt_real ICFIncr;
 	static apt_real ICFMax;
+
+	static apt_real TessellationGuardWidth;
+	static apt_real TessellationPointsPerBlock;
+	static apt_real CrystalloRadiusMax;
+	static apt_real SamplingGridBinWidthX;
+	static apt_real SamplingGridBinWidthY;
+	static apt_real SamplingGridBinWidthZ;
+	static apt_real ElevationAngleMin;
+	static apt_real ElevationAngleIncr;
+	static apt_real ElevationAngleMax;
+	static apt_real AzimuthAngleMin;
+	static apt_real AzimuthAngleIncr;
+	static apt_real AzimuthAngleMax;
+	static apt_real WindowingAlpha;
+	static int CrystalloHistoM;
+
 	static apt_real SpatStatRadiusMin;
 	static apt_real SpatStatRadiusIncr;
 	static apt_real SpatStatRadiusMax;
@@ -146,8 +197,12 @@ public:
 	static apt_real SpatResolutionSigmaZ;		//to account for finite APT resolution
 	static apt_real ClusterRadiusMean;
 	static apt_real ClusterRadiusSigmaSqr;
+	static apt_real SurfaceCellsCarvingRadius;
 
 	static size_t SpatStatKNNOrder;
+	static size_t ClustMSCntMin;
+	static size_t ClustMSCntIncr;
+	static size_t ClustMSCntMax;
 	static size_t ClustMSNmin;
 	static size_t NumberOfAtoms;
 	static size_t NumberOfCluster;
@@ -159,17 +214,26 @@ public:
 	static bool IdentifyIonType;
 	static bool IOReconstruction;
 	static bool IOTriangulation;
+	static bool IOTriangulationBVH;
+	static bool IOKDTreePartitioning;
 	static bool IOHKFilteredIons;
 	static bool IORAWHKClusterID;
 	static bool IOIonTipSurfDists;
+	static bool IOVoronoiDescrStats;
+	static bool IOVoronoiCellPositions;
+	static bool IOVoronoiTopoGeom;
+	static bool IOCrystallography;
 	static bool SyntheticTips;
 	static bool DebugComputeDistance;			//bringing unbiased distributions
 
 	static bool SpatStatDoRDF;
 	static bool SpatStatDo1NN;
 	static bool SpatStatDoRIPK;
-	static bool SpatStatDoKNN;
 	static bool SpatStatDoMKNN;
+
+	static bool SpatStatDoNPCorr;
+	static bool SpatStatDoCountNbors;
+
 	static bool SpatStatAddLabelRnd;
 	static bool ClustPostSpatStat;
 

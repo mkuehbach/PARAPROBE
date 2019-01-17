@@ -49,6 +49,19 @@ inline bool mqrange::inrange(const apt_real val)
 }
 
 
+PeriodicTable::PeriodicTable()
+{
+	MaximumTypID = 0;
+	rangefile_loaded = false; //flag to prevent multiple reloads
+	load_periodictable();
+}
+
+
+PeriodicTable::~PeriodicTable()
+{
+}
+
+
 unsigned int PeriodicTable::mq2ionname( const apt_real mq )
 {
 	//MK::maps mass-to-charge to ion type according to known parts of the periodic table
@@ -103,6 +116,65 @@ unsigned int PeriodicTable::get_maxtypeid()
 }
 
 
+void PeriodicTable::add_iontype_single_or_molecular( vector<string> const & in, mqrange const & ival )
+{
+	//use PeriodicTable of elements to find whether in contains useful info to build an iontype single or molecular
+	//element names are exclusive capitalized case sensitive assumed
+	string cand = "";
+cout << "adding new iontype" << endl;
+	for ( auto it = NuclidTable.begin(); it != NuclidTable.end(); ++it ) { //NuclidTable construction was in order strings in ascending order so
+		//does any token of in contain the NuclidName (it->first)
+		//format of a valid rrng range file line is Range1=44.8 50.0 Vol:0.01661 Sc:1 Color:33FFFF
+		//MK::so do not analyze the 0,1,2 and last token ! otherwise Radon and Cobalt will be added as molecular ions =)
+		string nuclidkeyword = it->first;
+		bool handle_singlechar_keys = ( nuclidkeyword.size() == 1 ) ? true : false;
+		for ( auto tk = in.begin()+3; tk != in.end()-1; ++tk) {
+			//special case handling necessary for elements with only one character
+			//Fe:1 F:1
+			string test = *tk;
+			if ( handle_singlechar_keys == true ) { //H, C,
+				string keyword_in_rrng = nuclidkeyword + ":";
+				if ( test.find(keyword_in_rrng) == string::npos ) {
+					continue;
+				}
+				else {
+					cand = cand + nuclidkeyword;
+cout << "__" << cand << "__" << endl;
+					break; //do not inspect further token to avoid multiple counting of ion
+				}
+			}
+			else {
+				if ( test.find( nuclidkeyword ) == string::npos ) { //token does not contain a string like "H" or "Yb"
+					continue;
+				}
+				else {
+					cand = cand + it->first;
+cout << "__" << cand << "__" << endl;
+					break; //do not inspect further token to avoid multiple counting of ion
+				}
+			}
+		}
+	}
+
+	//check if an IonType with keyword cand exists already
+	if ( IonTypes.find( cand ) == IonTypes.end() ) { //no it doesnt so create
+cout << "Single/molecular ion type __" << cand << "__ is new and added" << endl;
+		unsigned int typid = static_cast<unsigned int>(IonTypes.size());
+		//execute after setting typid
+		IonTypes[cand] = typid; //automatic incrementing given that UNKNOWNTYPE was added upon PeriodicTable construction!
+		IonNames[typid] = cand;
+		vector<mqrange> tmp;
+		MQ2IonName.push_back( tmp );
+		MQ2IonName.at(typid).push_back( ival );
+	}
+	else { //yes it does, such add range //##MK::if not overlapping
+cout << "Single/molecular ion type __" << cand << "__ exists already just adding range" << endl;
+		unsigned int typid = IonTypes[cand];
+		MQ2IonName.at(typid).push_back( ival);
+	}
+}
+
+
 bool PeriodicTable::read_rangefile( string ascii_io_fn )
 {
 	ifstream rrngfile;
@@ -130,14 +202,14 @@ bool PeriodicTable::read_rangefile( string ascii_io_fn )
 		//eliminate potential carriage return
 		if (!is.empty() && is[is.size()-1] == '\r')
 			is.erase(is.size()-1);
-		string should = "[Ions]";
 
-		if ( is.compare(should) == 0 && rrngfile.good() == true ) {
+		string should = "[Ions]";
+		if ( is.compare(should) == 0 && rrngfile.good() == true ) { //rangefile as it should
 			getline( rrngfile, rrngline );
 			istringstream line( rrngline );
 			getline( line, datapiece, '=');
 			getline( line , datapiece, '=');
-			unsigned int nspecies = atoi( datapiece.c_str() );
+			unsigned int nspecies = atoi( datapiece.c_str() ); //instead of reading the species one could just skip this "Ions" section
 			for ( unsigned int s = 0; s < nspecies; ++s ) {
 				if ( rrngfile.good() == true ) {
 						getline( rrngfile, rrngline );
@@ -177,7 +249,7 @@ bool PeriodicTable::read_rangefile( string ascii_io_fn )
 			//eliminate potential carriage return
 			if (!is.empty() && is[is.size()-1] == '\r')
 				is.erase(is.size()-1);
-			should = "[Ranges]";
+			should = "[Ranges]"; //...and work instead with "Ranges" only and use a periodic table to find combinations of single or molecular ions
 
 			if ( is.compare(should) == 0 ) {
 				getline( rrngfile, rrngline );
@@ -249,6 +321,106 @@ bool PeriodicTable::read_rangefile( string ascii_io_fn )
 }
 
 
+bool PeriodicTable::read_rangefile2( string ascii_io_fn )
+{
+	//automatic detection of single and molecular ions from a RRNG file
+	//we skip the "Ions" section and read instead immediately the ranges these
+	ifstream rrngfile;
+	string rrngline;
+	istringstream line;
+	string datapiece;
+
+	//the zeroth/null element is always the unknown type
+	IonTypes["Unknown"] = UNKNOWNTYPE;
+	IonNames[UNKNOWNTYPE] = "Unknown";
+	//MK::typ numeral identification starts at UNKNOWNTYPE+1 !
+	vector<mqrange> tmp;
+	MQ2IonName.push_back( tmp );
+	MQ2IonName.at(UNKNOWNTYPE).push_back( mqrange(0.0,0.001) ); //small dummy range
+
+	//in PARAPROBE_Numerics.h we define UNKNOWNTYPE to be 0 resulting in Fortran indexing of ion types
+
+	rrngfile.open( ascii_io_fn.c_str(), ifstream::in );
+	if ( rrngfile.is_open() == true ) {
+		//automatic identification of single and molecular ions given the periodic table of elements
+		//so first part of rangefile [Ions] can be skipped lines until eof or keyword "[Ranges]" is found whatever next
+		string keyword = "[Ranges]";
+		while ( rrngfile.good() == true ) {
+			//read a line
+			getline( rrngfile, rrngline );
+			//does it contain the keyword?
+			string is = rrngline.c_str();
+			if ( is.find(keyword) == string::npos )
+				continue; //may cycle up to eof if file is not a proper rrng
+			else
+				break; //line contains the keyword so break cycling, rrngline remains current
+		}
+
+		while ( rrngfile.good() == true ) { //head controlled, so if previous loop reached eof eofbit is set and will not enter
+			//if eofbit not yet set will now filter every line that contains relevant ranging pieces of information
+			getline( rrngfile, rrngline );
+			//split it into its tokens using boost
+			vector<string> tokens;
+			boost::split(tokens, rrngline, boost::is_any_of(" \t")); //can handle multiple delimiter different than getline
+			if ( 	tokens.size() >= 5 &&
+					tokens.at(0).find("Range") != string::npos &&
+					tokens.at(2).find("Vol") != string::npos ) { //there is range information available
+				//get range m/q interval
+				istringstream line( rrngline );
+				getline( line, datapiece, '=');
+				getline( line, datapiece, ' ');
+#ifdef EMPLOY_SINGLEPRECISION
+				apt_real low = stof( datapiece.c_str() ); //##MK::check consistence lo < hi etc...
+#else
+				apt_real low = stod( datapiece.c_str() );
+#endif
+				getline( line, datapiece, ' ');
+#ifdef EMPLOY_SINGLEPRECISION
+				apt_real high = stof( datapiece.c_str() );
+#else
+				apt_real high = stod( datapiece.c_str() );
+#endif
+				mqrange currentrange = mqrange(low, high);
+				//now we can use a !case sensitive! searching of element string names in the tokens
+				add_iontype_single_or_molecular( tokens, currentrange );
+			}
+			//whether or not there is range information keep on parsing...
+		}
+
+		//sort individual ranges for a given key
+		for ( size_t i = 0; i < MQ2IonName.size(); ++i ) {
+			sort( MQ2IonName.at(i).begin(), MQ2IonName.at(i).end(), SortMQRangeAscending );
+		}
+
+		//store maximum typid
+		MaximumTypID = IonTypes.size();
+		cout << "The maximum typid is " << MaximumTypID << endl;
+
+		cout << "RRNGFILE " << ascii_io_fn << " was loaded successfully with a total of now " << MaximumTypID << " ion types" << "\n";
+		cout << "I know the following elements" << "\n";
+		for ( auto it = NuclidTable.begin(); it != NuclidTable.end(); ++it ) {
+			cout << " " << it->first;
+		}
+		cout << endl;
+		cout << "I have identified the following single/molecular ions from the rrng file" << "\n";
+		for( auto it = IonTypes.begin(); it != IonTypes.end(); it++ ) {
+			cout << "\t\t" << it->first << "\t\tmapped to TypeID\t\t" << it->second << "\t\tcross-check name\t\t" << IonNames[it->second] << "\n";
+		}
+		cout << endl;
+
+		rrngfile.close(); rangefile_loaded = true;
+		return true;
+		//if no rangeinformation was presented no failure but every ion is considered UNKNOWN debug type
+	}
+	else {
+		complaining( "Unable to load RRNG file " + ascii_io_fn );
+		rrngfile.close(); rangefile_loaded = false;
+		return false;
+	}
+}
+
+
+
 TypeSpecDescrStat::TypeSpecDescrStat()
 {
 	//target = make_pair("UNKNOWNTYPE", UNKNOWNTYPE);
@@ -260,106 +432,59 @@ TypeSpecDescrStat::~TypeSpecDescrStat()
 }
 
 
-/*
-bool TypeSpecDescrStat::define_iontask1(const string command, PeriodicTable const & pse )
+
+
+
+bool TypeSpecDescrStat::define_iontask3(const string command, PeriodicTable const & pse )
 {
-	//is this at all a non-empty string to parse iontype names from?
-	if ( command.empty() == true ) {
+	//new type identification scheme:
+	//Central1,Central2,...,CentralN-NBor1,NBor2,...,NBorM  i.e.
+	//minus sign is central-neighbor block separator
+	//comma separates individual elements of centrals or targets
+
+	//reject when command is empty?
+	if ( command.empty() == true )
 		return false;
-	}
-
-	//is this at all a properly formatted task string?
-	//to parse off and is it of the required formatting "RangeType1,RangeType1,RangeType2" e.g. Al,Sc,Zr
-	size_t lastcomma = command.rfind(","); //find target type, it is separated by the first comma
-	if ( lastcomma == string::npos ) { //if there is not a last one i.e. none then invalid syntax
-		return false;
-	}
-	string lastkw = command.substr(lastcomma+1,command.length()-1);
-
-	istringstream line( command );
-	string datapiece;
-	getline( line, datapiece, ',');
-	auto it = pse.IonTypes.find( datapiece );
-	if ( it == pse.IonTypes.end() ) //such name does not exist!
-		return false;
-	else
-		target = make_pair(it->first, it->second);
-
-	//check if frequently desired case all against all
-	getline( line, datapiece, ',');
-	if ( datapiece.compare("X") == 0 ) { //include all and done
-		for (auto jt = pse.IonTypes.begin(); jt != pse.IonTypes.end(); jt++ ) {
-			envcandidates.insert( make_pair(jt->first, jt->second) );
-		}
-		return true;
-	}
-	else { //okay more complicated case of no all ions to include desired
-		auto it = pse.IonTypes.find( datapiece );
-		if ( it != pse.IonTypes.end() ) { //include only if it does not yet exist
-			auto jt = envcandidates.find( it->first );
-			if ( jt == envcandidates.end() ) {
-				envcandidates.insert( make_pair(it->first, it->second) );
-			} //else do nothing because we have already added the keyword
-		} //else cout << "!X case catching attempt to add non-existent type" << endl;
-	}
-
-	//process further ion types to include
-	while ( 1 )
-	{
-		getline( line, datapiece, ',' );
-		it = pse.IonTypes.find( datapiece );
-		if ( it != pse.IonTypes.end() ) { //include only if it does not yet exist
-			auto jt = envcandidates.find( it->first );
-			if ( jt == envcandidates.end() ) {
-				envcandidates.insert( make_pair(it->first, it->second) );
-			} //else do nothing because we have already added the keyword
-		} //else cout << "while case catching attempt to add non-existent type" << endl;
-
-		if ( datapiece.compare(lastkw) == 0 ) { //terminate if that was the last keyword
-			break;
-		}
-	}
-	return true;
-}
-*/
-
-
-bool TypeSpecDescrStat::define_iontask2(const string command, PeriodicTable const & pse )
-{
-	//is this at all a non-empty string to parse iontype names from?
-	if ( command.empty() == true ) {
-		return false;
-	}
+	//reject when command has no or more than one minus
 	//is there a single comma only in the command string so that the string can specify at all a valid command?
-	if ( std::count(command.begin(), command.end(), ',') != 1 ) {
+	if ( std::count(command.begin(), command.end(), '-') != 1 )
 		return false;
-	}
 
-	//yes only one comma, so it is a properly formatted task string?
-	//CentralType1,CentralTypeN-1-Envtype1,EnvtypeM-1
-	//entire task list as follows Al,Al;AlMn,AlMn --->
-	//first task Al against Al
-	//second task Al or Mn as central ions versus Al or Mn as neighbors
-
-	//split string at the single comma
-
+	//split at the central nbor
 	istringstream line( command );
+	string centers;
+	getline( line, centers, '-');
+	string nbors;
+	getline( line, nbors, '-');
+
+	//how many elements of either centers and nbors?
+	size_t ncenters = std::count(centers.begin(), centers.end(), ',') + 1; //##MK +1 because if none there is at least potentially one
+	istringstream left( centers );
 	string datapiece;
-	getline( line, datapiece, ',');
-	//the right part specifies the central ion types
-	for (auto jt = pse.IonTypes.begin(); jt != pse.IonTypes.end(); jt++ ) {
-		if ( datapiece.find(jt->first) != string::npos )
-			trgcandidates.insert( make_pair(jt->first, jt->second) );
+	for( size_t i = 0; i < ncenters; ++i ) {
+		getline( left, datapiece, ',');
+		for (auto jt = pse.IonTypes.begin(); jt != pse.IonTypes.end(); jt++ ) { //check if keyword is exactly one of the existent
+			if ( datapiece.compare(jt->first) != 0 )
+				continue;
+			else
+				trgcandidates.insert( make_pair(jt->first, jt->second) );
+		}
 	}
 	//at least one element as central ion?
 	if ( trgcandidates.size() < 1 )
 		return false;
 
-	//the left part specifies the neighboring ion types in the environment
-	getline( line, datapiece, ',');
-	for (auto jt = pse.IonTypes.begin(); jt != pse.IonTypes.end(); jt++ ) {
-		if ( datapiece.find(jt->first) != string::npos )
-			envcandidates.insert( make_pair(jt->first, jt->second) );
+
+	size_t nnbors = std::count(nbors.begin(), nbors.end(), ',') + 1;
+	istringstream right( nbors );
+	for( size_t i = 0; i < nnbors; ++i ) {
+		getline( right, datapiece, ',');
+		for (auto jt = pse.IonTypes.begin(); jt != pse.IonTypes.end(); jt++ ) { //check if keyword is exactly one of the existent
+			if ( datapiece.compare(jt->first) != 0 )
+				continue;
+			else
+				envcandidates.insert( make_pair(jt->first, jt->second) );
+		}
 	}
 	//at least one element as env ion?
 	if ( envcandidates.size() < 1 )
@@ -369,6 +494,159 @@ bool TypeSpecDescrStat::define_iontask2(const string command, PeriodicTable cons
 	return true;
 }
 
+
+bool TypeSpecDescrStat::define_iontask4(const string command, PeriodicTable const & pse )
+{
+	//new type identification scheme:
+	//Central1,Central2,...,CentralN-NBor1,NBor2,...,NBorM  i.e.
+	//minus sign is central-neighbor block separator
+	//comma separates individual elements of centrals or targets
+
+	//reformulates userdefined type single/molecular ions into standard internal format
+	//for instance consider a rrng file with a Range specification "Al:2 O:1 H:1" a common molecular ion
+	//the automatic iontype identification during in read_rangefile will identify from this a molecular ion
+	//named AlOoHh, now given that the order in which the elements are found from the range file line
+	//is defined but dependent on the order in the for loop over the nuclid table the same molecular ion
+	//could be named HhAlOo or all permutations
+	//the user should not have to worry about this, ie enter AlOH only now throwing this to the identification
+	//algorithm will not find O or H because their keys in the NuclidTable are Hh and Oo respectively
+	//this is why we have to internally convert the user input into a consistent representation using the
+	//internal format
+
+	//reject when command is empty?
+	string mess = "";
+	if ( command.empty() == true ) {
+		mess = "DefineIontask4::Command __" + command + "__is empty";
+		reporting( mess );
+		return false;
+	}
+	//reject when command has no or more than one minus
+	//is there a single minus separator only in the command string so that the string can specify at all a valid command?
+	if ( std::count(command.begin(), command.end(), '-') != 1 ) {
+		mess = "DefineIontask4::Command has not only one minus separator __" + command + "__is empty";
+		reporting( mess );
+		return false;
+	}
+
+	//split at the central nbor
+	istringstream line( command );
+	string centers;
+	getline( line, centers, '-');
+	string nbors;
+	getline( line, nbors, '-');
+
+	//how many elements of either centers and nbors?
+	size_t ncenters = std::count(centers.begin(), centers.end(), ',') + 1; //##MK +1 because if none there is at least potentially one
+	istringstream left( centers );
+	string datapiece;
+	vector<string> temp;
+	for( size_t i = 0; i < ncenters; ++i ) {
+		getline( left, datapiece, ',');
+		cout << "___" << datapiece.c_str() << "___" << datapiece.size() << endl;
+		string cand = "";
+		temp.clear();
+		//parsing of single character element name molecular ions requires additional testing logic
+		//take for instance Sc, doing only an accept at first find would find sulphur, some thing for He and hydrogen...
+		for ( auto it = pse.NuclidTable.begin(); it != pse.NuclidTable.end(); ++it ) {
+			//MK::cycling through the NuclidTable in the same order than upon reading the rangefile
+			//such molecular ion iontype name identification is consistent
+			//cout << "NuclidTable___" << it->first << "___" << datapiece << "___" << datapiece.c_str() << endl;
+			if ( datapiece.find( it->first ) == string::npos ) { //datapiece does not contain a string like "Hh" or "Yb"
+				continue;
+			}
+			else {
+				temp.push_back( it->first );
+			}
+		}
+		//now that we know all possible elements of the (molecular)ion we need to build a consistent type string
+		//and figure out which they actually are example SSc we would have found S, and Sc as temporaries
+		//now test if the given molecular ion name "SSc" is exactly only on of the intermediates
+		cout << "Temporary elementname candidates for targets are " << endl;
+		for( auto kt = temp.begin(); kt != temp.end(); ++kt )
+			cout << " __" << *kt << "__";
+		cout << endl;
+		bool IsItASingleElementIon = false;
+		for( auto kt = temp.begin(); kt != temp.end(); ++kt ) { //take for example "SSc" temp will contain "S" and "Sc"
+			if ( datapiece.compare( *kt ) != 0 ) { //"S" != "SSc"
+				continue;
+			}
+			else {
+				IsItASingleElementIon = true; //consider as a single ion
+				cand = cand + *kt;
+				break;
+			}
+		} //neither "Sc" == "SSc" nor "S" == "SSc" so SSc is a molecular ion
+		if ( IsItASingleElementIon == false ) { //consider as a molecular ion
+			for( auto kt = temp.begin(); kt != temp.end(); ++kt ) {
+				cand = cand + *kt;
+			}
+		}
+		auto jt = pse.IonTypes.find( cand );
+		if ( jt != pse.IonTypes.end() ) { //molecular ion does not yet exist
+			trgcandidates.insert( make_pair(jt->first, jt->second) );
+		}
+	}
+	//at least one element as central ion?
+	if ( trgcandidates.size() < 1 ) {
+		mess = "DefineIontask4::trgcandidates.size() < 1";
+		reporting( mess );
+		return false;
+	}
+
+
+	size_t nnbors = std::count(nbors.begin(), nbors.end(), ',') + 1;
+	istringstream right( nbors );
+	for( size_t i = 0; i < nnbors; ++i ) {
+		getline( right, datapiece, ',');
+		string cand = "";
+		temp.clear();
+		for ( auto it = pse.NuclidTable.begin(); it != pse.NuclidTable.end(); ++it ) {
+			//MK::cycling through the NuclidTable in the same order than upon reading the rangefile
+			//such molecular ion iontype name identification is consistent
+			if ( datapiece.find( it->first ) == string::npos ) { //datapiece does not contain a string like "Hh" or "Yb"
+				continue;
+			}
+			else {
+				temp.push_back( it->first );
+			}
+		}
+		cout << "Temporary elementname candidates for neighbors are " << endl;
+		for( auto kt = temp.begin(); kt != temp.end(); ++kt )
+			cout << " __" << *kt << "__";
+		cout << endl;
+		//single or molecular ion oracle
+		bool IsItASingleElementIon = false;
+		for( auto kt = temp.begin(); kt != temp.end(); ++kt ) {
+			if ( datapiece.compare( *kt ) != 0 ) {
+				continue;
+			}
+			else {
+				IsItASingleElementIon = true;
+				cand = cand + *kt;
+				break;
+			}
+		} //neither "Sc" == "SSc" nor "S" == "SSc" so SSc is a molecular ion
+		if ( IsItASingleElementIon == false ) { //consider as a molecular ion
+			for( auto kt = temp.begin(); kt != temp.end(); ++kt ) {
+				cand = cand + *kt;
+			}
+		}
+
+		auto jt = pse.IonTypes.find( cand );
+		if ( jt != pse.IonTypes.end() ) { //molecular ion does not yet exist
+			envcandidates.insert( make_pair(jt->first, jt->second) );
+		}
+	}
+	//at least one element as env ion?
+	if ( envcandidates.size() < 1 ) {
+		mess = "DefineIontask4::envcandidates.size() < 1";
+		reporting( mess );
+		return false;
+	}
+
+	//seems now to be a valid task
+	return true;
+}
 
 
 
@@ -392,7 +670,8 @@ cout << "Parsing no tasks at all" << endl;
 		TypeSpecDescrStat tmp; //speculative accepting of that new task
 		these.push_back( tmp );
 		TypeSpecDescrStat & thistask = these.back();
-		if ( thistask.define_iontask2( datapiece, thispse ) == true ) { //a valid task
+		//if ( thistask.define_iontask3( datapiece, thispse ) == true ) { //a valid task
+		if ( thistask.define_iontask4( datapiece, thispse ) == true ) {
 			/* ##MK::deprecated
 			*cout << endl;
 			*cout << "\t\tCentral ion type--->" << thistask.target.first << "/" << thistask.target.second << endl;
@@ -410,3 +689,112 @@ cout << "Parsing no tasks at all" << endl;
 		}
 	}
 }
+
+
+
+void PeriodicTable::load_periodictable()
+{
+	//MK::so far defines the periodic table of elements only
+	//is used for reading rangefiles to allow for automatic detection of single and molecular ion species
+	//##MK::can be extended to include nuclides and natural abundances
+	nuclid dummy = nuclid();
+	//Keyword must be two character string the first capital the second low-case
+	//this is why elements with a single character name such as "H" hydrogen require a modified
+	//key otherwise a string.find on a an iontype string such as "He" would identify
+	//"H" and "He" an form HHe which is incorrect, using Hh prevents this and identifies only He for this example
+	//correspondingly molecular ions like AlH become AlHh
+	NuclidTable.insert( pair<string,nuclid>("H", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("He", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Li", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Be", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("B", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("C", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("N", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("O", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("F", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ne", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Na", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Mg", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Al", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Si", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("P", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("S", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Cl", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ar", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("K", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ca", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Sc", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ti", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("V", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Cr", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Mn", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Fe", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Co", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ni", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Cu", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Zn", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ga", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ge", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("As", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Se", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Br", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Kr", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Rb", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Sr", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Y", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Zr", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Nb", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Mo", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Tc", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ru", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Rh", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Pd", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ag", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Cd", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("In", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Sn", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Sb", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Te", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("I", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Xe", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Cs", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ba", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("La", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ce", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Pr", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Nd", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Pm", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Sm", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Eu", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Gd", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Tb", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Dy", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ho", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Er", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Tm", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Yb", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Lu", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Hf", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ta", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("W", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Re", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Os", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ir", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Pt", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Au", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Hg", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Tl", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Pb", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Bi", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Po", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("At", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Rn", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Fr", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ra", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Ac", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Th", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Pa", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("U", dummy) );
+	NuclidTable.insert( pair<string,nuclid>("Pu", dummy) );
+}
+

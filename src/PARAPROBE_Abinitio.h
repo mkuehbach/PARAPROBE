@@ -62,12 +62,20 @@
 #define METER2NANOMETER(m)				((1.0e9)*(m))
 #define NANOMETER2METER(nm)				((1.0e-9)*(nm))
 
+#define BYTE2GIGABYTE(b)				((b)/((1024.f)*(1024.f)*(1024.f)))
+
+
 
 //crystal lattice
 #define ATOMS_PER_UNITCELL_FCC			(4)
 
 #define FCC								(0)
 #define AL3SC							(1)
+
+
+//logical
+#define NO								0x00
+#define YES								0x01
 
 
 #endif

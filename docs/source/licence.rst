@@ -1,5 +1,5 @@
-**The project is licenced under the GNU v3.0**
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+The project is licenced under the GNU v3.0
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 | Copyright Max-Planck-Institut für Eisenforschung, GmbH, Düsseldorf
 | Data structure, code design, parallel implementation: Markus Kühbach, 2017-2018

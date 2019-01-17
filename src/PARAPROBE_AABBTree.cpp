@@ -778,6 +778,33 @@ void Tree::validate() const
 }
 
 
+void Tree::report_tree( const string csv_fn )
+{
+	ofstream csvlog;
+	csvlog.open( csv_fn.c_str() );
+	if ( csvlog.is_open() == false ) {
+		string mess = "Unable to open file " + csv_fn;
+		stopping(mess);
+		return;
+	}
+
+	csvlog.precision(18);
+	csvlog << "NodeID;XMin;YMin;ZMin;XMax;YMax;ZMax;IsLeaf\n";
+	csvlog << "1;nm;nm;nm;nm;nm;nm;bool\n";
+	csvlog << "NodeID;XMin;YMin;ZMin;XMax;YMax;ZMax;IsLeaf\n";
+
+	size_t nodeidx = 0;
+	for( auto it = nodes.begin(); it != nodes.end(); ++it, ++nodeidx ) {
+		csvlog << nodeidx << ";";
+		csvlog << it->aabb.lowerBound.a << ";" << it->aabb.lowerBound.b << ";" << it->aabb.lowerBound.c << ";";
+		csvlog << it->aabb.upperBound.a << ";" << it->aabb.upperBound.b << ";" << it->aabb.upperBound.c << ";";
+		csvlog << it->isLeaf() << "\n";
+	}
+	csvlog.flush();
+	csvlog.close();
+}
+
+
 void Tree::validateStructure(unsigned int node) const
 {
 	if (node == NULL_NODE) 

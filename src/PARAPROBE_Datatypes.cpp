@@ -31,6 +31,135 @@
 
 #include "PARAPROBE_Datatypes.h"
 
+ostream& operator<<(ostream& in, p2d const & val)
+{
+	in << val.x << ";" << val.y << endl;
+	return in;
+}
+
+
+ostream& operator<<(ostream& in, p3d const & val)
+{
+	in << val.x << ";" << val.y << ";" << val.z << endl;
+	return in;
+}
+
+
+ostream& operator<<(ostream& in, p3i const & val)
+{
+	in << val.x << ";" << val.y << ";" << val.z << endl;
+	return in;
+}
+
+
+ostream& operator<<(ostream& in, p6i const & val)
+{
+	in << val.xmi << ";" << val.xmx << "\t\t" << val.ymi << ";" << val.ymx << "\t\t" << val.zmi << ";" << val.zmx << endl;
+	return in;
+}
+
+
+
+ostream& operator<<(ostream& in, vxxl const & val)
+{
+	in << val.x << ";" << val.y << ";" << val.z << endl;
+	return in;
+}
+
+
+ostream& operator<<(ostream& in, p1dm1 const & val)
+{
+	in << val.pos << "--" << val.m << endl;
+	return in;
+}
+
+
+ostream& operator<<(ostream& in, p2dm1 const & val)
+{
+	in << val.x << ";" << val.y << ";" << "--" << val.m << endl;
+	return in;
+}
+
+
+ostream& operator<<(ostream& in, p3dm1 const & val)
+{
+	in << val.x << ";" << val.y << ";" << val.z << "--" << val.m << endl;
+	return in;
+}
+
+
+ostream& operator<<(ostream& in, p3dm3 const & val) {
+	in << "ID/sgn/Iontype/xyz\t\t" << val.id << ";" << val.sgn << ";" << val.iontype;
+	in << val.x << ";" << val.y << ";" << val.z << endl;
+	return in;
+}
+
+
+apt_real d3d::diff_vector_len()
+{
+	apt_real sqrlen = SQR(this->u) + SQR(this->v) + SQR(this->w);
+	return ( sqrlen > EPSILON) ? sqrt(sqrlen) : 0.f;
+}
+
+
+ostream& operator<<(ostream& in, d3d const & val)
+{
+	in << val.u << ";" << val.v << ";" << val.w << endl;
+	return in;
+}
+
+
+inline apt_real v3d::len() const
+{
+	return (this->SQR_len > EPSILON) ? sqrt(this->SQR_len) : 0.f;
+}
+
+ostream& operator<<(ostream& in, v3d const & val)
+{
+	in << val.u << ";" << val.v << ";" << val.w << "----" << val.SQR_len << endl;
+	return in;
+}
+
+
+
+void aabb2d::scale()
+{
+	this->xsz = this->xmx - this->xmi;
+	this->ysz = this->ymx - this->ymi;
+}
+
+void aabb2d::blowup( const apt_real f )
+{
+	this->xmi -= f;
+	this->xmx += f;
+	this->ymi -= f;
+	this->ymx += f;
+	this->scale();
+}
+
+apt_real aabb2d::diag()
+{
+	return sqrt(SQR(this->xmx-this->xmi)+SQR(this->ymx-this->ymi));
+}
+
+
+ostream& operator<<(ostream& in, aabb2d const & val)
+{
+	in << val.xmi << ";" << val.xmx << "--" << val.ymi << ";" << val.ymx << "----" << val.xsz << ";" << val.ysz << endl;
+	return in;
+}
+
+
+void aabb3d::add_epsilon_guard()
+{
+	this->xmi -= AABBINCLUSION_EPSILON; //EPSILON;
+	this->xmx += AABBINCLUSION_EPSILON; //EPSILON;
+	this->ymi -= AABBINCLUSION_EPSILON; //EPSILON;
+	this->ymx += AABBINCLUSION_EPSILON; //EPSILON;
+	this->zmi -= AABBINCLUSION_EPSILON; //EPSILON;
+	this->zmx += AABBINCLUSION_EPSILON; //EPSILON;
+}
+
 
 void aabb3d::scale()
 {
@@ -50,16 +179,137 @@ void aabb3d::blowup( const apt_real f )
 	this->scale();
 }
 
+
 apt_real aabb3d::diag()
 {
 	return sqrt(SQR(this->xmx-this->xmi)+SQR(this->ymx-this->ymi)+SQR(this->zmx-this->zmi));
 }
 
+
+bool aabb3d::inside( const p3dm1 test )
+{
+	if ( test.x < this->xmi )	return false;
+	if ( test.x > this->xmx )	return false;
+	if ( test.y < this->ymi )	return false;
+	if ( test.y > this->ymx )	return false;
+	if ( test.z < this->zmi )	return false;
+	if ( test.z > this->zmx )	return false;
+
+	return true;
+}
+
+
+bool aabb3d::is_inside_box_xy( aabb3d const & reference, apt_real guard )
+{
+	if ( 	(reference.xmi - guard) > this->xmi &&
+			(reference.xmx + guard) < this->xmx &&
+			(reference.ymi - guard) > this->ymi &&
+			(reference.ymx + guard) < this->ymx )
+		return true;
+	else
+		return false;
+	//&& (reference.zmi - guard) > this->zmi && (reference.zmx + guard) < this->zmx )
+}
+
+
+p3d aabb3d::center()
+{
+	return p3d( 0.5*(this->xmi + this->xmx),
+				0.5*(this->ymi + this->ymx),
+				0.5*(this->zmi + this->zmx) );
+}
+
+
 ostream& operator<<(ostream& in, aabb3d const & val)
 {
-	in << val.xmi << ";" << val.xmx << "--" << val.ymi << ";" << val.ymx << "--" << val.zmi << ";" << val.zmx << "----" << val.xsz << ";" << val.ysz << ";" << val.zsz << endl;
+	in << "\n" << "\t\t" << val.xmi << ";" << val.xmx << "\n";
+	in <<         "\t\t" << val.ymi << ";" << val.ymx << "\n";
+	in <<         "\t\t" << val.zmi << ";" << val.zmx << "\n";
+	in <<         "\t\t" << val.xsz << ";" << val.ysz << ";" << val.zsz << endl;
 	return in;
 }
+
+
+ostream& operator<<(ostream& in, cuboidgrid3d const & val)
+{
+	in << "Gridcells\t\t" << val.gridcells.xmi << ";" << val.gridcells.xmx << "\n";
+	in << "         \t\t" << val.gridcells.ymi << ";" << val.gridcells.ymx << "\n";
+	in << "         \t\t" << val.gridcells.zmi << ";" << val.gridcells.zmx << "\n";
+	in << "Binwidth \t\t" << val.binwidths.x << ";" << val.binwidths.y << ";" << val.binwidths.z << "\n";
+	in << "AABB3D   \t\t" << val.ve.xmi << ";" << val.ve.xmx << ";" << "\n";
+	in << "         \t\t" << val.ve.ymi << ";" << val.ve.ymx << ";" << "\n";
+	in << "         \t\t" << val.ve.zmi << ";" << val.ve.zmx << endl;
+	return in;
+}
+
+
+/*void cuboidgrid3d::init( const p3i64 extend, const p3d dims, aabb3d const & roi )
+{
+	this->gridcell = extend;
+	this->binwidths = dims;
+	this->nxy = extend.nx * extend.ny;
+	this->nxyz = extend.nx * extend.ny * extend.nz;
+	this->ve = roi;
+}*/
+
+
+p3d cuboidgrid3d::where( const int ix, const int iy, const int iz )
+{
+	p3d out = p3d( F32MX, F32MX, F32MX ); //failure point
+	if ( 	ix >= this->gridcells.xmi &&
+			ix <= this->gridcells.xmx &&
+			iy >= this->gridcells.ymi &&
+			iy <= this->gridcells.ymx &&
+			iz >= this->gridcells.zmi &&
+			iz <= this->gridcells.zmx ) {
+
+		p3d out = this->ve.center();
+		//spreading in steps of binwidths to the six directions axis aligned
+		out.x = out.x + (static_cast<apt_real>(ix) * this->binwidths.x);
+		out.y = out.y + (static_cast<apt_real>(iy) * this->binwidths.y);
+		out.z = out.z + (static_cast<apt_real>(iz) * this->binwidths.z);
+		return out;
+	}
+	return p3d( F32MX, F32MX, F32MX );
+}
+
+
+/*size_t cuboidgrid3d::whichcell( const p3d p )
+{
+	//3d implicit x+y*nx+z*nx*ny
+	//##MK::numerical robustness might require to add EPSILON environment
+	apt_real ix = floor((p.x - this->ve.xmi) / (this->ve.xmx - this->ve.xmi) * static_cast<apt_real>(this->gridcell.nx));
+	apt_real iy = floor((p.y - this->ve.ymi) / (this->ve.ymx - this->ve.ymi) * static_cast<apt_real>(this->gridcell.ny));
+	apt_real iz = floor((p.z - this->ve.zmi) / (this->ve.zmx - this->ve.zmi) * static_cast<apt_real>(this->gridcell.nz));
+	size_t res = static_cast<size_t>(ix) + static_cast<size_t>(iy) * this->gridcell.nx + static_cast<size_t>(iz) * this->nxy;
+	return res;
+}*/
+
+
+bool cylinder::inside( const p3dm1 test )
+{
+	if ( test.x < this->aabb.xmi )	return false;
+	if ( test.x > this->aabb.xmx )	return false;
+	if ( test.y < this->aabb.ymi )	return false;
+	if ( test.y > this->aabb.ymx )	return false;
+	if ( test.z < this->aabb.zmi )	return false;
+	if ( test.z > this->aabb.zmx )	return false;
+
+	//inside spherical section
+	if ( ( SQR(test.x - 0.5*(this->aabb.xmi+this->aabb.xmx)) + SQR(test.x - 0.5*(this->aabb.xmi+this->aabb.xmx)) ) > SQR(this->R) )
+		return false;
+	else
+		return true;
+}
+
+
+ostream& operator<<(ostream& in, cylinder const & val)
+{
+	in << val.aabb.xmi << ";" << val.aabb.xmx << "--" << val.aabb.ymi << ";" << val.aabb.ymx << "--" << val.aabb.zmi << ";" << val.aabb.zmx << "----" << val.aabb.xsz << ";" << val.aabb.ysz << ";" << val.aabb.zsz << endl;
+	in << val.H << ";" << val.R << endl;
+	return in;
+}
+
 
 ostream& operator<<(ostream& in, jobreceipt const & val)
 {
@@ -68,36 +318,22 @@ ostream& operator<<(ostream& in, jobreceipt const & val)
 }
 
 
-ostream& operator<<(ostream& in, p3d const & val)
-{
-	in << val.x << ";" << val.y << ";" << val.z << endl;
-	return in;
-}
-
-
-ostream& operator<<(ostream& in, p3dm1 const & val)
-{
-	in << val.x << ";" << val.y << ";" << val.z << "--" << val.m << endl;
-	return in;
-}
-
-
-inline apt_real v3d::len() const
-{
-	return (this->SQR_len > EPSILON) ? sqrt(this->SQR_len) : 0.f;
-}
-
-ostream& operator<<(ostream& in, v3d const & val)
-{
-	in << val.u << ";" << val.v << ";" << val.w << "----" << val.SQR_len << endl;
-	return in;
-}
 
 ostream& operator<<(ostream& in, nbor const & val)
 {
 	in << "Distance/MarkValue = " << val.d << "\t\t" << val.m << endl;
 	return in;
 }
+
+
+
+p3d tri3d::barycenter()
+{
+	return p3d( (this->x1 + this->x2 + this->x3 )/3.f,
+				(this->y1 + this->y2 + this->y3 )/3.f,
+				(this->z1 + this->z2 + this->z3 )/3.f );
+}
+
 
 ostream& operator<<(ostream& in, tri3d const & val)
 {
@@ -114,6 +350,7 @@ ostream& operator<<(ostream& in, triref3d const & val)
 }
 
 
+
 size_t sqb::where( const p3dm1 p )
 {
 	//3d implicit x+y*nx+z*nx*ny
@@ -125,9 +362,79 @@ size_t sqb::where( const p3dm1 p )
 }
 
 
+ostream& operator<<(ostream& in, t3x1 const & val)
+{
+	in << val.a11 << "," << val.a21 << "," << val.a31 << endl;
+	return in;
+}
+
+void t3x3::add( const t3x3 & increase, const real_m33 weight )
+{
+	this->a11 += weight * increase.a11;
+	this->a12 += weight * increase.a12;
+	this->a13 += weight * increase.a13;
+
+	this->a21 += weight * increase.a21;
+	this->a22 += weight * increase.a22;
+	this->a23 += weight * increase.a23;
+
+	this->a31 += weight * increase.a31;
+	this->a32 += weight * increase.a32;
+	this->a33 += weight * increase.a33;
+}
+
+void t3x3::div( const real_m33 divisor )
+{
+	if (abs(divisor) > DOUBLE_EPSILON) {
+		this->a11 /= divisor;
+		this->a12 /= divisor;
+		this->a13 /= divisor;
+
+		this->a21 /= divisor;
+		this->a22 /= divisor;
+		this->a23 /= divisor;
+
+		this->a31 /= divisor;
+		this->a32 /= divisor;
+		this->a33 /= divisor;
+	}
+}
+
+ostream& operator << (ostream& in, t3x3 const & val) {
+	in << val.a11 << ";" << val.a12 << ";" << val.a13 << "\n";
+	in << val.a21 << ";" << val.a22 << ";" << val.a23 << "\n";
+	in << val.a31 << ";" << val.a32 << ";" << val.a33 << endl;
+	return in;
+}
+
+
+void plane3d::normaldistance_parameterization( t3x1 const & normal, p3d const & ponplane )
+{
+	real_m33 _magn = sqrt(SQR(normal.a11)+SQR(normal.a21)+SQR(normal.a31));
+	real_m33 minusp = -1.f * ((normal.a11/_magn)*ponplane.x + (normal.a21/_magn)*ponplane.y + (normal.a31/_magn)*ponplane.z);
+	cout << "magn/minusp = " << _magn << "\t\t" << minusp << endl;
+	this->n0 = normal.a11 / _magn;
+	this->n1 = normal.a21 / _magn;
+	this->n2 = normal.a31 / _magn;
+	this->d = minusp;
+	//Hesse normal form of plane3d with unit normal * point in space x + d == 0 if this holds point is on plane
+	//set x = (0,0,0) worldcoordinate origin, see that d gives signed distance to origin
+}
+
+
+ostream& operator<<(ostream& in, plane3d const & val)
+{
+	in << "Plane normal " << val.n0 << "\t\t" << val.n1 << "\t\t" << val.n2 << "\n";
+	in << "Plane sgn(d) " << val.d << endl;
+	return in;
+}
+
+
+
+
 ostream& operator<<(ostream& in, sqb const & val)
 {
-	in << "BinningNXYZ = " << val.nx << ";" << val.ny << ";" << val.nz << "\t\t" << val.nxy << ";" << val.nxyz << "\t\t" << endl;
+	in << "BinningNXYZ/width = " << val.nx << ";" << val.ny << ";" << val.nz << "\t\t" << val.nxy << ";" << val.nxyz << "\t\t" << val.width << endl;
 	in << "BinningBoundingBox = " << val.box << endl;
 	return in;
 }
@@ -614,5 +921,13 @@ ostream& operator<<(ostream& in, occupancy const & val)
 	in << "SurfaceIons\t\t" << val.nions_surface << "\n";
 	in << "InsideIons\t\t" << val.nions_inside << "\n";
 	in << "InsideVolume\t\t" << val.volume_inside << " (nm^3)\n";
+	return in;
+}
+
+
+ostream& operator<<(ostream& in, localmaximum const & val)
+{
+	//##MK::for FFT peaks
+	in << "Peakposition = " << val.position << " (1/nm) strength = " << val.strength << " (a.u.)\n";
 	return in;
 }

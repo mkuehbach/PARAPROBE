@@ -43,18 +43,25 @@
 #define EMPLOY_SINGLEPRECISION
 
 #define EPSILON							(1.0e-6)
+#define DOUBLE_EPSILON					(1.0e-12)
+#define AABBINCLUSION_EPSILON			(1.0e-4)
 typedef float apt_xyz;
 typedef apt_xyz apt_real;
 typedef size_t apt_int;
+typedef double real_m33;
 
 
 //type range
+#define UCHARMX							(numeric_limits<unsigned char>::max())
+#define UCHARMI							(numeric_limits<unsigned char>::lowest())
 #define UINT64MX						(numeric_limits<size_t>::max())
 #define UINT64MI						(numeric_limits<size_t>::lowest())
 #define UINT32MX						(numeric_limits<unsigned int>::max())
 #define UINT32MI						(numeric_limits<unsigned int>::lowest())
 #define F32MX							(numeric_limits<apt_xyz>::max())
 #define F32MI							(numeric_limits<apt_xyz>::lowest()) //MK::for floating point values numlimits::min is not ::lowest!
+#define F64MX							(numeric_limits<double>::max())
+#define F64MI							(numeric_limits<double>::lowest())
 #define SIZETMX							(numeric_limits<size_t>::max())
 
 #define RMIN							(F32MI)
@@ -63,6 +70,7 @@ typedef size_t apt_int;
 //user-defined accuracy limits
 #define MINIMUM_PDF_RESOLUTION			(0.1)		//in nanometer
 #define TIPAABB_GUARDZONE				(0.1)		//in nanometer
+#define MAXIMUM_NPC3D_BIN_RESOLUTION	(503)		//pixel
 
 
 //handling of iontypes and flagging them for inclusion/exclusion in analyses
@@ -81,5 +89,10 @@ typedef size_t apt_int;
 //MK::Mersenne initialization
 #define MT19937SEED						(-1)
 #define MT19937WARMUP					(700000)
+
+
+//##MK::Voronoi functionality
+//if undefined we also output halo cells at the boundary
+#define VALIDZONE_IONS_ONLY
 
 #endif

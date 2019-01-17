@@ -89,26 +89,23 @@ void complaining( const string what ) {
 
 
 void stopping( const int rank, const string what ) {
-	cout << "ERROR::" << rank << " " << what << endl;
+	cerr << "ERROR::" << rank << " " << what << endl;
 }
 void stopping( const string what ) {
-	cout << "ERROR::" << what << endl;
+	cerr << "ERROR::" << what << endl;
 }
+
 
 
 int main(int argc, char** argv)
-{    
-//DEBUG HDF
-//	debug_hdf5();
-//	return 0;
-
+{
 //SETUP PROGRAM AND PARAMETER BUT DO NOT YET LOAD MEASUREMENT DATA
 	helloworld( argc, argv );
 	if ( init( argc, argv ) == false ) {
 		return 0;
 	}
 	
-//go MPI process parallel with hybrid OpenMP threading capability, funneled means only main thread will make MPI calls
+//go MPI process parallel with hybrid OpenMP threading capability, funneled means only MASTER thread will make MPI calls per process
 	int supportlevel_desired = MPI_THREAD_FUNNELED;
 	int supportlevel_provided;
 	MPI_Init_thread( &argc, &argv, supportlevel_desired, &supportlevel_provided);
@@ -152,6 +149,17 @@ int main(int argc, char** argv)
 	hdl->set_mpidatatypes();
 	if ( Settings::NumaBinding != E_NOBINDING ) {
 		hdl->initialize_thread_binding();
+	}
+
+//init HDF5 output file
+	if ( hdl->get_rank() == MASTER ) {
+		if ( hdl->generate_hdf5_resultsfile() == true ) {
+			reporting( r, "HDF5 results files initialized");
+		}
+		else {
+			stopping( r, "HDF5 input file initialization failed");
+			localhealth = 0;
+		}
 	}
 
 //load APT measurement file by all in parallel, individually identify ions with rangefile
@@ -201,6 +209,7 @@ int main(int argc, char** argv)
 
 //identify ions aka ranging
 	if ( localhealth == 1 ) { //healthy i.e. files were loaded successfully
+
 		if ( hdl->identify_ions() == true )
 			reporting( r, "Ions were identified successfully...");
 		else
@@ -217,61 +226,86 @@ int main(int argc, char** argv)
 		return 0;
 	}
 
-//generate a solver to perform reconstruction and analysis task, which is equipped with a reconClass and higherOrderHdl
 	localhealth = 1;
 	solver* sr = NULL;
-	try {
-		sr = new solver;
-		sr->recon->owner = sr;
-		sr->sp->owner = sr;
-		sr->binner->owner = sr;
-		sr->surf->owner = sr;
-		sr->rndmizer->owner = sr;
-		sr->hometrics->owner = sr;
-		sr->cldetect->owner = sr;
-	}
-	catch (bad_alloc &exc) {
-		complaining( r, "Unable to allocate a solver");
-		localhealth = 0;
-	}
 
-	if ( localhealth == 1 ) { //solver has been initialized
-		sr->owner = hdl;
+//generate a solver to perform analysis tasks in reconstruction space
+	if ( Settings::AnalysisMode == E_ANALYZE_IN_RECONSTRUCTION_SPACE ) {
+		try {
+			sr = new solver;
+			sr->recon->owner = sr;
+			sr->sp->owner = sr;
+			sr->binner->owner = sr;
+			sr->surf->owner = sr;
+			sr->rndmizer->owner = sr;
+			sr->hometrics->owner = sr;
+			sr->cldetect->owner = sr;
+			sr->aptcrystallo->owner = sr;
+		}
+		catch (bad_alloc &exc) {
+			complaining( r, "Unable to allocate a solver");
+			localhealth = 0;
+		}
 
-//generate a reconstruction to transform rawdata_pos/_epos into x,y,z point process in every case
-		if ( Settings::ReconstructionAlgo != E_RECON_NOTHING  ) {
-			sr->volume_reconstruction();
+		if ( localhealth == 1 ) { //solver has been initialized
+			sr->owner = hdl;
 
-			//MK::from now on the rawdata on hdl are no longer necessary and could already be deleted to safe memory inplace
-			hdl->delete_rawdata();
+	//generate a reconstruction to transform rawdata_pos/_epos into x,y,z point process in every case
+			if ( Settings::ReconstructionAlgo != E_RECON_NOTHING  ) {
+				sr->volume_reconstruction();
 
-			sr->spatial_decomposition();
+				//MK::from now on the rawdata on hdl are no longer necessary
+				//and could already be deleted to safe memory inplace
+				hdl->delete_rawdata();
 
-//additional datamining in recon space with this reconstruction?
-			if ( Settings::AnalysisMode == E_ANALYSIS_DEFAULT ) {
+				sr->spatial_decomposition();
 
-				sr->volume_binning();
+				sr->volume_binning(); //begin data mining in recon space with this reconstruction?
 
 				sr->surface_triangulation();
 				sr->surface_distancing2();
+				//##MK::deprecated VTK version sr->characterize_distances();
+				sr->characterize_tip();
 
-				sr->characterize_distances();
+				if ( Settings::VolumeTessellation != E_NOTESS)
+					sr->tessellate_tipvolume();
 
-				sr->init_spatialindexing();
 
-				if ( Settings::SpatialDistributionTask != E_NOSPATSTAT )
-					sr->characterize_spatstat();
 
-				if ( Settings::ClusteringTask != E_NOCLUST )
-					sr->characterize_clustering();
+				if ( Settings::SpatialDistributionTask != E_NOSPATSTAT
+						|| Settings::ClusteringTask != E_NOCLUST
+						|| Settings::ExtractCrystallographicInfo != E_NOCRYSTALLO ) {
+
+					sr->init_spatialindexing();
+
+					if ( Settings::ExtractCrystallographicInfo != E_NOCRYSTALLO )
+						sr->characterize_crystallography();
+
+					if ( Settings::SpatialDistributionTask != E_NOSPATSTAT )
+						sr->characterize_spatstat();
+
+					if ( Settings::ClusteringTask != E_NOCLUST )
+						sr->characterize_clustering();
+
+					//##MK::original place VolumeTessellation
+
+					//triangle hull BVH no longer needed
+					sr->surf->chop_rtree();
+				}
 			}
 		}
+
+		try { //delete solver object if existent
+			delete sr; sr = NULL;
+		}
+		catch (bad_alloc &exc) {
+			complaining( r, "Unable to deallocate a solver");
+			localhealth = 0;
+		}
 	}
+
 //report profiling
 	hdl->tictoc.spit_profiling( Settings::SimID, hdl->get_rank() );
-
-//delete solver object if existent
-	delete sr; sr = NULL;
 
 	double gtoc = MPI_Wtime();
 	string mess = "Elapsed time on process " + to_string(hdl->get_rank()) + " " + to_string((gtoc-gtic)) + " seconds";
@@ -287,23 +321,3 @@ int main(int argc, char** argv)
 }
 
 
-//##MK::TO DO
-//boundary contact analysis
-
-
-//##MK::TO DO
-//##MK::find isolated functions of member functions with void argument
-//##MK::change HoshenKopelman to threading and from unsigned int to size_t
-//##MK::potentially still a flaw in the HoshenKopelman part
-//##MK::add maximum number of ion < UINT32MAX-1 check
-//##MK::input check... in Settings
-
-
-//##MK::DEBUG overload to check numerical representation of content inside EPOS and POS
-/*
-	hdl->load_epos_sequentially( "R76_30139-v02.epos" );
-	hdl->load_pos_sequentially( "R76_30139-v02.pos" );
-	hdl->compare_epos_pos();
-	cout << "Controlled ending for debugging!" << endl;
-	localhealth = 0;
-*/

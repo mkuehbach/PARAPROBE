@@ -220,6 +220,53 @@ erase_log spacebucket::erase_rball( const p3d p, apt_xyz r )
 }
 
 
+void spacebucket::write_occupancy_raw()
+{
+	double tic;
+	tic = MPI_Wtime();
+
+	string raw_fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".RawdataAlfOccupancy.NX." + to_string(mdat.nx) + ".NY." + to_string(mdat.ny) + ".NZ." + to_string(mdat.nz) + ".raw";
+
+	MPI_File msFileHdl;
+	MPI_Status msFileStatus;
+	//in mpi.h MPI_Offset is defined as an __int64 which is long long, thus we can jump much more than 2^32 directly when unsigned int would be utilized
+	MPI_File_open( MPI_COMM_SELF, raw_fn.c_str(), MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &msFileHdl );
+	long long totalOffset = 0;
+	MPI_File_seek( msFileHdl, totalOffset, MPI_SEEK_SET );
+
+	unsigned int* wbuf = NULL;
+	try {
+		wbuf = new unsigned int[mdat.nxy];
+	}
+	catch (bad_alloc &hkexc) {
+		stopping("Unable to allocate memory for writing labels!");
+		return;
+	}
+
+	for( size_t z = 0; z < mdat.nz; ++z ) {
+		//MK::debug clear labels of buffer to detect inconsistencies
+		for ( size_t yx = 0; yx < mdat.nxy; ++yx ) {
+			wbuf[yx] = UINT32MX; //debug flagging
+			if ( buckets.at(yx+z*mdat.nxy) != NULL ) {
+				if ( buckets.at(yx+z*mdat.nxy)->size() < numeric_limits<unsigned int>::max() )
+					wbuf[yx] = buckets.at(yx+z*mdat.nxy)->size(); //assure implicit type casting safety...
+			}
+			else
+				wbuf[yx] = 0;
+		}
+		//xy layer at once
+		MPI_File_write(msFileHdl, wbuf, mdat.nxy, MPI_UNSIGNED, &msFileStatus); //implicit advancement of fp
+	} //next region z with regions on stacked top of one another in y
+
+	delete [] wbuf; wbuf = NULL;
+
+	MPI_File_close(&msFileHdl); //no Barrier as MPI_COMM_SELF
+
+	double toc = MPI_Wtime();
+	cout << "Reporting space bucket bin occupancy written via MPIIO into a binary file in " << (toc-tic) << " seconds" << endl;
+}
+
+
 size_t spacebucket::get_memory_consumption()
 {
 	size_t bytes = sizeof(sqb);

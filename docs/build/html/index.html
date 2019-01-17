@@ -48,14 +48,18 @@
 <img alt="_images/PARAPROBEFront_02.png" src="_images/PARAPROBEFront_02.png" />
 </div>
 <div class="line-block">
-<div class="line">PARAPROBE is an MPI/OpenMP/SIMD-parallelized tool for efficient scalable processing of</div>
-<div class="line">Atom Probe Tomography (APT) data targeting back-end integration.</div>
+<div class="line">PARAPROBE is an MPI/OpenMP-parallelized open source back end tool for</div>
+<div class="line">running strong scaling analyses of Atom Probe Tomography (APT) data.</div>
 </div>
 <div class="line-block">
-<div class="line">The source code is developed by Markus Kühbach, currently Postdoc with Franz Roters</div>
-<div class="line">at the Max-Planck-Institut für Eisenforschung GmbH (<a class="reference external" href="https://www.mpie.de">MPIE</a>) in Düsseldorf.</div>
-<div class="line">Feel free to utilize the tool, do not hesitate contacting <a class="reference external" href="https://www.mpie.de/person/51206/2656491">me</a> to suggest</div>
-<div class="line">improvements or desirable features, or simply to report your experiences.</div>
+<div class="line">The tool is developed by <a class="reference external" href="https://bigmax.iwww.mpg.de/39151/bigmax-software-engineering-consultant">Markus</a> Kühbach, a scientific computing Postdoc</div>
+<div class="line">with the Max-Planck <a class="reference external" href="https://www.bigmax.mpg.de/">BiGmax</a>’s research network at the Max-Planck Institut,</div>
+<div class="line">für Eisenforschung (<a class="reference external" href="https://www.mpie.de">MPIE</a>) in Düsseldorf.</div>
+</div>
+<div class="line-block">
+<div class="line">Please feel free to utilize the tool. In doing so, feel equally free</div>
+<div class="line">to suggest <a class="reference external" href="https://www.mpie.de/person/51206/2656491">me</a> any improvements or desirable analysis features</div>
+<div class="line">you find useful to add into PARAPROBE.</div>
 </div>
 <blockquote>
 <div></div></blockquote>
@@ -89,15 +93,18 @@
 <div class="toctree-wrapper compound">
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="input.html"><strong>XML Control File Settings</strong></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="input.html#questions">Questions?</a></li>
 <li class="toctree-l2"><a class="reference internal" href="input.html#input">Input</a></li>
 <li class="toctree-l2"><a class="reference internal" href="input.html#analysis-mode">Analysis mode</a></li>
 <li class="toctree-l2"><a class="reference internal" href="input.html#reconstruction">Reconstruction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="input.html#tip-surface-reconstruction">Tip surface reconstruction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="input.html#analysis-tasks">Analysis Tasks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="input.html#bas-et-al-reconstruction-parameter">Bas et al reconstruction parameter</a></li>
-<li class="toctree-l2"><a class="reference internal" href="input.html#smart-pruning">Smart pruning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#barr-et-al-reconstruction-parameter">Barr et al reconstruction parameter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#smart-pruning-prior-surface-reconstruction">Smart pruning prior surface reconstruction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#crystallographic-analysis">Crystallographic analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="input.html#descriptive-spatial-statistics-parameter">Descriptive spatial statistics parameter</a></li>
 <li class="toctree-l2"><a class="reference internal" href="input.html#clustering-analyses-parameter">Clustering analyses parameter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="input.html#tessellation-analyses">Tessellation analyses</a></li>
 <li class="toctree-l2"><a class="reference internal" href="input.html#visualization-options">Visualization options</a></li>
 <li class="toctree-l2"><a class="reference internal" href="input.html#synthetic-tip">Synthetic tip</a></li>
 <li class="toctree-l2"><a class="reference internal" href="input.html#performance">Performance</a></li>
@@ -124,61 +131,39 @@
 </div>
 </div>
 <div class="section" id="version-history">
-<h1>Version history<a class="headerlink" href="#version-history" title="Permalink to this headline">¶</a></h1>
-<div class="line-block">
-<div class="line"><strong>v0.1</strong> — Initial implementation</div>
-<div class="line-block">
-<div class="line">MPI/OpenMP thread-parallelized spatial range querying and indexing tasks</div>
-<div class="line">CGAL alpha shape tip surface extraction with smart pruning</div>
-<div class="line">OMP-parallelized RDF, 1NN, kNN, Ripley K descriptive spatial statistics</div>
-<div class="line">These can be batch processed using different and multiple type combinations, as well as</div>
-<div class="line">multiple kNN settings at a time for each task</div>
-<div class="line">Descriptive statistics are computed both deterministically randomized and non-randomized</div>
-<div class="line">with full ion typ pairing flexibility</div>
-<div class="line">OMP-parallelized maximum separation clustering method with dmax parameter sweeping</div>
-<div class="line">Cluster size distribution identification, removal of bias via boundary contact identification</div>
-<div class="line">Beta stage support for a posteriori relabeling of the ions after each dmax run to</div>
-<div class="line">exclude clustered ions and guardzone about them from the again and do a posteriori</div>
-<div class="line">OMP-parallel descriptive spatial statistics on the remaining ions</div>
-<div class="line">Synthetic tip generation for benchmarking and testing, NUMA thread pinning</div>
-<div class="line">Beta stage exemplary HDF5 I/O support</div>
-</div>
-</div>
-</div>
-<div class="section" id="licence">
-<h1>Licence<a class="headerlink" href="#licence" title="Permalink to this headline">¶</a></h1>
+<h1>4. Version history<a class="headerlink" href="#version-history" title="Permalink to this headline">¶</a></h1>
 <div class="toctree-wrapper compound">
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="licence.html"><strong>The project is licenced under the GNU v3.0</strong></a></li>
+<li class="toctree-l1"><a class="reference internal" href="changelog.html">v0.1</a></li>
+<li class="toctree-l1"><a class="reference internal" href="changelog.html#beta-stage-functionality">Beta-stage functionality</a></li>
+<li class="toctree-l1"><a class="reference internal" href="licence.html">The project is licenced under the GNU v3.0</a></li>
 </ul>
 </div>
 </div>
 <div class="section" id="references">
-<h1>References<a class="headerlink" href="#references" title="Permalink to this headline">¶</a></h1>
+<h1>5. References<a class="headerlink" href="#references" title="Permalink to this headline">¶</a></h1>
 <div class="toctree-wrapper compound">
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="refs.html"><strong>References</strong></a><ul>
-<li class="toctree-l2"><a class="reference internal" href="refs.html#the-method">The method</a></li>
-<li class="toctree-l2"><a class="reference internal" href="refs.html#third-party-contributions">Third-party contributions</a></li>
-<li class="toctree-l2"><a class="reference internal" href="refs.html#computational-geometry-focused-apt-method-development-by-other-people">Computational geometry focused APT method development by other people</a></li>
-<li class="toctree-l2"><a class="reference internal" href="refs.html#contact">Contact</a></li>
-</ul>
-</li>
+<li class="toctree-l1"><a class="reference internal" href="refs.html">The method</a></li>
+<li class="toctree-l1"><a class="reference internal" href="refs.html#third-party-contributions">Third-party contributions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="refs.html#computational-geometry-focused-apt-method-development-by-other-people">Computational geometry focused APT method development by other people</a></li>
+<li class="toctree-l1"><a class="reference internal" href="refs.html#contact">Contact</a></li>
 </ul>
 </div>
 </div>
 <div class="section" id="funding">
-<h1>Funding<a class="headerlink" href="#funding" title="Permalink to this headline">¶</a></h1>
+<h1>6. Funding<a class="headerlink" href="#funding" title="Permalink to this headline">¶</a></h1>
 <div class="line-block">
-<div class="line">The author gratefully acknowledges the support from the DFG in the frame of the project BA 4253/2-1</div>
-<div class="line">as well as the provisioning of computing resources by the Max-Planck Gesellschaft.</div>
+<div class="line">The author gratefully acknowledges the support from the Deutsche</div>
+<div class="line">Forschungsgemeinschaft (<a class="reference external" href="https://www.dfg.de/">DFG</a>) through project BA 4253/2-1 and the</div>
+<div class="line">provisioning of computing resources by the Max-Planck Gesellschaft.</div>
 </div>
-</div>
-<div class="section" id="questions-contributions">
-<h1>Questions, contributions<a class="headerlink" href="#questions-contributions" title="Permalink to this headline">¶</a></h1>
-<p>Just let me know and contact <a class="reference external" href="https://www.mpie.de/person/51206/2656491">me</a></p>
 <blockquote>
 <div></div></blockquote>
+</div>
+<div class="section" id="questions-contributions">
+<h1>7. Questions, contributions<a class="headerlink" href="#questions-contributions" title="Permalink to this headline">¶</a></h1>
+<p>Please feel free to contact <a class="reference external" href="https://www.mpie.de/person/51206/2656491">me</a></p>
 </div>
 
 
@@ -192,11 +177,10 @@
 <li><a class="reference internal" href="#">1. Getting started</a></li>
 <li><a class="reference internal" href="#utilize-productively">2. Utilize productively</a></li>
 <li><a class="reference internal" href="#examples">3. Examples</a></li>
-<li><a class="reference internal" href="#version-history">Version history</a></li>
-<li><a class="reference internal" href="#licence">Licence</a></li>
-<li><a class="reference internal" href="#references">References</a></li>
-<li><a class="reference internal" href="#funding">Funding</a></li>
-<li><a class="reference internal" href="#questions-contributions">Questions, contributions</a></li>
+<li><a class="reference internal" href="#version-history">4. Version history</a></li>
+<li><a class="reference internal" href="#references">5. References</a></li>
+<li><a class="reference internal" href="#funding">6. Funding</a></li>
+<li><a class="reference internal" href="#questions-contributions">7. Questions, contributions</a></li>
 </ul>
 
   <h4>Next topic</h4>

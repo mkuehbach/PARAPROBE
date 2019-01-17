@@ -1,72 +1,139 @@
 cmake_minimum_required(VERSION 3.0)
 
-################################################################################################################
-##USER INTERACTION##############################################################################################
-##in this section modifications and paths need to be added by the user##########################################
-################################################################################################################
+################################################################################################################################
+##USER INTERACTION##############################################################################################################
+##in this section modifications and local paths need to be modified by the user#################################################
+################################################################################################################################
 #please name your project accordingly
 set(MYPROJECTNAME "paraprobe")
 
-#tell where the source code of PARAPROBE is
-set(MYSRCPATH "/home/m.kuehbach/PARAPROBE/src/")
+#tell the top directory where this local PARAPROBE version is stored
+set(MYPROJECTPATH "/home/m.kuehbach/PARAPROBE_Paper14_FINAL/")
 
-#choose which compiler to use
-##GNU 7.3/MPICH and Intel/IntelMPI 2018 have been tested
-set(EMPLOY_INTELCOMPILER OFF)
-set(EMPLOY_GNUCOMPILER ON)
-set(VERBOSE_VECTORIZATION ON)
+#COMPILER, choose which one to use
+##GNU 7.3 and Intel 18.1 in combination with MPICH and IntelMPI have been tested
+set(EMPLOY_INTELCOMPILER ON) #either or
+set(EMPLOY_GNUCOMPILER OFF)
 
 #choose optimization level
-##-O0 for debug purposes only
-##-O1 or -O2 for moderate optimization
-##-O3 for production level optimization
-set(MYOPTLEVEL "-O3")
+##-O0 nothing, debug purposes, -O1 moderate optimization, -O2 -O3 for production level up to aggressive optimization
+set(MYOPTLEVEL "-O3 -march=native")
 
-#CGAL location
-#have you executed cmake -DCMAKE_BUILD_TYPE=Release -DCGAL_DIR=YOURPATHTOCGAL before, if so CGAL should be found
+#necessary libraries
+#CGAL with internal dependencies gmp mfpr and Boost necessary
+#you have to configurate the compilation by typing cmake -DCMAKE_BUILD_TYPE=Release -DCGAL_DIR=YOURPATHTOCGAL before
+#here the placeholder YOURPATHTOCGAL should be replaced with the absolute path were your local CGAL is
+set(EMPLOY_CGAL ON)
+set(EMPLOY_MYINTELMKL ON)
+set(EMPLOY_MYHDF5 ON)
+set(EMPLOY_BOOST ON)
 
-
-#BoostSIMD location
-##this is an optional component
+#optional libraries
 set(EMPLOY_BSIMDSUPPORT OFF)
+set(EMPLOY_JEMALLOC OFF)
+
+################################################################################################################################
+#END OF INTERACTION FOR NON PRO USERS###########################################################################################
+##in this section advanced users might want/need to make modifications if they use non default places for thirdparty libraries##
+################################################################################################################################ 
+
+#INTEL MATH KERNEL LIBRARY threaded numerical library Intel MKL
+#manual finding of IntelMKL where do we find the IntelMKL library
+set(MYMKLROOT "/opt/intel/compilers_and_libraries_2018/linux/mkl//")
+set(MYMKLPATH "${MYMKLROOT}/lib/intel64_lin")
+include_directories("${MYMKLROOT}/include")
+set(MYMKL_COMPILEFLAGS "")
+set(MYMKL_LINKFLAGS "-lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -liomp5 -lpthread -lm -ldl")
+#set(MYMKL_LINKFLAGS "-mkl -DMKL_ILP64")
+
+
+#HDF5 local installation for advanced I/O, collecting metadata and bundle analysis results together
+set(MYHDFPATH "${MYPROJECTPATH}/src/thirdparty/HDF5/CMake-hdf5-1.10.2/build/HDF5-1.10.2-Linux/HDF_Group/HDF5/1.10.2")
+#download Unix tar archive for the HDF5-1.10.2 release from www.hdf5.org
+#copy into local directory, do not use sudo to execute
+#unpack via tar -xvf tarballname
+#change into directory from now on this is referred to as the hdfroot folder
+#execute ./build_unix.sh  this will configure the static libraries, sequential no fortran support and use deflate compression library
+#when configure build and test has been completed
+#take packed archive and extract into the automatically generated build folder within the hdfroot folder
+#deep in these folders are the include directories and the static libraries (a files) we to understand the hdf5.cpp commands and 
+#the libraries we need to link statically against to execute hdf5 functionalities
+include_directories("${MYHDFPATH}/include")
+link_directories("${MYHDFPATH}/lib")
+##link against static libraries
+set(MYHDFLINKFLAGS "-L${MYHDFPATH}/lib/ ${MYHDFPATH}/lib/libhdf5_hl.a ${MYHDFPATH}/lib/libhdf5.a -lz -ldl")
+
+##########################################################################################
+#####PERFORMANCE RELATED##################################################################
+##here settings for scalable vectorization and scalable allocator classes are made########
+##so far these components are optional####################################################
+
+
+#NumScale bSIMD scalable vectorization support
 if (EMPLOY_BSIMDSUPPORT)
-	include_directories("/home/m.kuehbach/SIMD/master/include")
+	include_directories("${MYPROJECTPATH}/src/thirdparty/bSIMD/home/m.kuehbach/SIMD/master/include")
 	set(MYSIMDFLAGS "-msse4.2")
 elseif()
 	set(MYSIMDFLAGS "")
 endif()
 
+#Linux NUMA Non-uniform memory access (NUMA)
+#might need installation on cluster
+##needs necessarily linking into the program but not necessarily used
+set(MYNUMA "-lnuma")
+add_definitions(${MYNUMA})
 
-#optional HDF5 location
-##this is also optional and if used in beta stage support
-set(EMPLOY_HDFSUPPORT OFF)
-if (EMPLOY_HDFSUPPORT)
-	set(MYHDFPATH "/home/m.kuehbach/Maintain/CMake-hdf5-1.10.2/build/HDF5-1.10.2-Linux/HDF_Group/HDF5/1.10.2")
-	#download Unix tar archive for the HDF5-1.10.2 release from www.hdf5.org
-	#copy into local directory, do not use sudo to execute
-	#unpack via tar -xvf tarballname
-	#change into directory from now on this is referred to as the hdfroot folder
-	#execute ./build_unix.sh  this will configure the static libraries, sequential no fortran support and use deflate compression library
-	#when configure build and test has been completed
-	#take packed archive and extract into the automatically generated build folder within the hdfroot folder
-	#deep in these folders are the include directories and the static libraries (a files) we to understand the hdf5.cpp commands and 
-	#the libraries we need to link statically against to execute hdf5 functionalities
-	include_directories("${MYHDFPATH}/include")
-	link_directories("${MYHDFPATH}/lib")
-	##link against static libraries
-	set(MYHDFLINKFLAGS "-L${MYHDFPATH}/lib/ ${MYHDFPATH}/lib/libhdf5_hl.a ${MYHDFPATH}/lib/libhdf5.a -lz -ldl")
+#Scalable allocation using Jason Evans alternative malloc3 implementation##################
+##alternatives are for instance tcmmalloc##################################################
+##optional: if desired specify location of working jemalloc installation or local compiled version of the library
+##use only in combination with pinned threads to reduce fragmentation and improve memory locality during allocation
+if (EMPLOY_JEMALLOC)
+	set(MYJEMALLOCPATH "${MYPROJECTPATH}/src/thirdparty/Jemalloc/jemalloc-5.1.0")
+	set(MYSCALABLEALLOC "-ljemalloc")
+	add_definitions(${MYSCALABLEALLOC})
+	include_directories("${MYJEMALLOCPATH}/include")
+	link_directories("${MYJEMALLOCPATH}/lib")
 elseif()
-	set(MYHDFPATH "")
-	set(MYHDFLINKFLAGS "")
+	set(MYSCALABLEALLOC "")
+	add_definitions(${MYSCALABLEALLOC})
 endif()
 
 
-################################################################################################################
-##AUTOMATIC SECTION#############################################################################################
-##normally no further changes should be required below unless your an expert####################################
-################################################################################################################
+#additional hints IntelMKL but currently not utilized
+#set(MYMKL "-lmkl_intel_ilp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl")
+#set(MYMKL "-DMKL_ILP64 -parallel -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -ldl")
+#set(MYMKL_COMPILEFLAGS "-mkl -DMKL_ILP64")
+
+#check also https://software.intel.com/en-us/articles/intel-mkl-link-line-advisor
+#works for now
+#set(MYMKL_COMPILEFLAGS "")
+#set(MYMKL_LINKFLAGS "-parallel -Wl,--start-group ${MYMKLPATH}/libmkl_intel_lp64.a ${MYMKLPATH}/libmkl_sequential.a ${MYMKLPATH}/libmkl_core.a -Wl,--end-group -lpthread")
+
+
+#############################################################################################################################
+##AUTOMATIC SECTION##########################################################################################################
+##normally no further changes should be required below unless for development################################################
+#############################################################################################################################
+set(VERBOSE_VECTORIZATION ON)
 
 #user input sanity checks
+if(EMPLOY_CGAL)
+	message([STATUS] "We use the CGAL library for computational geometry")
+else()
+	message([FATAL_ERROR] "It is necessary to compile in at least the header only CGAL library")
+endif()
+if(EMPLOY_MYINTELMKL)
+	message([STATUS] "We use the Intel Math Kernel library (IMKL) for discrete Fourier transform functionality")
+else()
+	message([FATAL_ERROR] "It is necessary to link against the IntelMKL library")
+endif()
+if(EMPLOY_MYHDF5)
+	message([STATUS] "We use the HDF5 library for advanced I/O")
+else()
+	message([FATAL_ERROR] "It is necessary to link against the HDF5 library")
+endif()
+
+	
 if(EMPLOY_INTELCOMPILER AND EMPLOY_GNUCOMPILER)
 	message([FATAL_ERROR] "You cannot utilize two compiler at the same time!")
 endif()
@@ -83,7 +150,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${MYOPTLEVEL}")
 if(EMPLOY_INTELCOMPILER)
 	message([STATUS] "Employing the Intel compiler!")
 	if (VERBOSE_VECTORIZATION)
-		set(MYVERBOSE "-qopt-report-phase=vec")
+		set(MYVERBOSE "-vec-report=2") #https://software.intel.com/en-us/node/522949/ "-qopt-report-phase=vec")
+	else()
+		set(MYVERBOSE "")
 	endif()
 	add_definitions("${MYOPTLEVEL} ${MYVERBOSE}")
 	message([WARNING] "Currently not SIMD flags provided for Intel compile options")
@@ -120,11 +189,18 @@ message([STATUS] "We utilize optimization level ${MYOPTLEVEL}")
 find_package(MPI REQUIRED)
 include_directories(${MPI_INCLUDE_PATH})
 
+set(MYSRCPATH "${MYPROJECTPATH}/src/")
+set(MYVOROSRCPATH "${MYPROJECTPATH}/src/thirdparty/VoroRycroft/voro++-0.4.6/src/")
+
 add_executable(${MYPROJECTNAME}
+	${MYSRCPATH}PARAPROBE_IntelMKL.cpp
 	${MYSRCPATH}PARAPROBE_NUMABinding.cpp
+	${MYSRCPATH}PARAPROBE_ScalableAllocator.cpp
 	${MYSRCPATH}PARAPROBE_Datatypes.cpp
 	${MYSRCPATH}PARAPROBE_PeriodicTable.cpp
 	${MYSRCPATH}PARAPROBE_Histogram.cpp
+	${MYSRCPATH}PARAPROBE_DiscreteHistogram.cpp
+	${MYSRCPATH}PARAPROBE_NPointCorrelations3D.cpp
 	${MYSRCPATH}PARAPROBE_Math.cpp
 	${MYSRCPATH}PARAPROBE_Settings.cpp
 	${MYSRCPATH}PARAPROBE_AABBTree.cpp
@@ -138,22 +214,34 @@ add_executable(${MYPROJECTNAME}
 	${MYSRCPATH}PARAPROBE_TAPSimHdl.cpp
 	${MYSRCPATH}PARAPROBE_Profiling.cpp
 	${MYSRCPATH}PARAPROBE_HPDBScan.cpp
+	
+	${MYVOROSRCPATH}c_loops.cc
+	${MYVOROSRCPATH}cell.cc
+	#${MYVOROSRCPATH}cmd_line.cc
+	${MYVOROSRCPATH}common.cc
+	${MYVOROSRCPATH}container.cc
+	${MYVOROSRCPATH}container_prd.cc
+	${MYVOROSRCPATH}pre_container.cc
+	${MYVOROSRCPATH}unitcell.cc
+	${MYVOROSRCPATH}v_base.cc
+	#${MYVOROSRCPATH}v_base_wl.cc
+	${MYVOROSRCPATH}v_compute.cc
+	#${MYVOROSRCPATH}voro++.cc
+	${MYVOROSRCPATH}wall.cc
+	
+	${MYSRCPATH}PARAPROBE_VoroXX.cpp
 	${MYSRCPATH}PARAPROBE_SolverHdl.cpp
 	${MYSRCPATH}PARAPROBE_Main.cpp
 )
 
-#tell us where to find the BoostSIMD library
-message([STATUS] "We need the boost probable vector intrinsics library...")
-
-
 #tell us where to find the header only CGAL library paths
+##GMP and MPFR is included and found alongside the CGAL library
 message([STATUS] "We need the header-only CGAL library...")
 find_package(CGAL QUIET)
 if( CGAL_FOUND )
 	include( ${CGAL_USE_FILE} )
 endif()
 
-##GMP and MPFR is included and found alongside the CGAL library
 
 ##assure the Boost package is there to allow and ease the reading of files and folders from the filesystem
 message([STATUS] "We need Boost as well...")
@@ -164,7 +252,7 @@ find_package(Boost COMPONENTS system filesystem REQUIRED)
 
 #linking process
 ##mind the y and dl libraries at the end which are required for gcc support when using the hdf libraries
-target_link_libraries(${MYPROJECTNAME} ${MYOMP} -lgmp -lm -lnuma ${Boost_LIBRARIES} ${MPI_LIBRARIES} ${MYHDFLINKFLAGS})
+target_link_libraries(${MYPROJECTNAME} ${MYOMP} -lgmp -lm ${MYNUMA} ${Boost_LIBRARIES} ${MPI_LIBRARIES} ${MYHDFLINKFLAGS} ${MYSCALABLEALLOC} ${MYMKL_LINKFLAGS})
 
 #MPI compilation settings
 if(MPI_COMPILE_FLAGS)

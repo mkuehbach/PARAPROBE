@@ -32,22 +32,25 @@
 #ifndef __PARAPROBE_BSIMD_H__
 #define __PARAPROBE_BSIMD_H__
 
-//#include "PARAPROBE_Parallelization.h"
-#include "PARAPROBE_NUMABinding.h"
+#include "PARAPROBE_ScalableAllocator.h"
 
-//MK::connecting to the NumScale boostSIMD library to access portable vector intrinsics for recon
+//MK::optional utilization of NumScale boostSIMD library to access portable vector intrinsics for recon
 //#define USE_BOOST
 
 #ifdef USE_BOOST
 
 	#include <boost/simd/pack.hpp>
+	#include <boost/simd/function/cos.hpp>
+	#include <boost/simd/function/sin.hpp>
 	namespace bs = boost::simd;
+	using pack_f32 = bs::pack<int>;
+	using pack_ui = bs::pack<uint32_t>;
 
-	//include Boost functionality
-	#include <boost/dynamic_bitset.hpp>
 
-	//include BoostSIMD
-	//##MK
+	//include bSIMD functionality
+
+	//include Boost SIMD
+	//#include <boost/dynamic_bitset.hpp>
 
 #endif
 

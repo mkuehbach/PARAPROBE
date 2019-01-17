@@ -32,6 +32,10 @@
 #define __PARAPROBE_NUMABINDING_H__
 
 #include "PARAPROBE_Parallelization.h"
+//#include "PARAPROBE_IntelMKL.h"
+
+//use the numa api library to explicitly overwrite operating system for:
+//pin threads explicitly to specific cores SURPLUS define where these get primarily their memory from
 
 #include <numa.h>
 
@@ -62,19 +66,11 @@ struct NUMANode##### {
 */
 
 
-//pick NUMANode type you want to use
+//pick the specific NUMANode struct type you want to use
 typedef struct NUMANodeMAWS15 NUMANodeType;
 
 
 unsigned int my_numa_bitmask_weight(const struct bitmask *mask);
-/*{
-	unsigned int weight = 0;
-	for (unsigned int j = 0; j < mask->size; j++) {
-		if (numa_bitmask_isbitset(mask, j)) {
-			weight++;
-		}
-	}
-	return weight;
-}*/
+
 
 #endif

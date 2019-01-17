@@ -169,3 +169,98 @@ apt_real mathHdl::closestPointOnTriangle( const tri3d face, const p3d src )
 	//so return SQR of difference to avoid sqrt in the code
 	return ( SQR(cp.x-src.x) + SQR(cp.y-src.y) + SQR(cp.z-src.z) );
 }
+
+
+bool mathHdl::fit_leastsqr_plane3d( vector<p3d> const & in, p3d & pplane, plane3d & out )
+{
+	//fit a plane in 3d space parameterized into normal and signed distance using least square deviation
+	if ( in.size() >= 3 ) { //need at least three points to define a plane
+		//inspired by https://de.mathworks.com/matlabcentral/fileexchange/43305-plane-fit
+		//but this script has a mistake: an arbitrary eigvector is picked where instead
+		//the one corresponding to smallest eigval (if existent) should be the chosen
+
+	    p3d pmean = p3d( 0.f, 0.f, 0.f );
+		for( auto it = in.begin(); it != in.end(); ++it) {
+			pmean.x = pmean.x + it->x;
+			pmean.y = pmean.y + it->y;
+			pmean.z = pmean.z + it->z;
+		}
+		pmean.x /= static_cast<apt_xyz>(in.size());
+		pmean.y /= static_cast<apt_xyz>(in.size());
+		pmean.z /= static_cast<apt_xyz>(in.size());
+		pplane = pmean;
+		//cout << "pmean\t\t" << pmean << endl;
+
+		//R = bsxfun(@minus,X,p);
+		vector<p3d> R;
+		for( auto it = in.begin(); it != in.end(); ++it) {
+			R.push_back( p3d(it->x - pmean.x, it->y - pmean.y, it->z - pmean.z) );
+		}
+
+		//Computation of the principal directions if the samples cloud [V,D] = eig(R'*R);
+		t3x3 RctrspR = t3x3( 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f );
+		//for( size_t i = 0; i < R.size(); i++ ) {
+		for( auto it = R.begin(); it != R.end(); it++ ) {
+			RctrspR.a11 = RctrspR.a11 + (it->x*it->x);
+			RctrspR.a12 = RctrspR.a12 + (it->x*it->y);
+			RctrspR.a13 = RctrspR.a13 + (it->x*it->z);
+
+			RctrspR.a21 = RctrspR.a21 + (it->y*it->x);
+			RctrspR.a22 = RctrspR.a22 + (it->y*it->y);
+			RctrspR.a23 = RctrspR.a23 + (it->y*it->z);
+
+			RctrspR.a31 = RctrspR.a31 + (it->z*it->x);
+			RctrspR.a32 = RctrspR.a32 + (it->z*it->y);
+			RctrspR.a33 = RctrspR.a33 + (it->z*it->z);
+		}
+		//cout << "RctrspR\t\t" << RctrspR << endl;
+
+		//eig(R'*R) MATLAB documentation [V,D] = eig(A) returns diagonal matrix D of eigenvalues
+		//and matrix V whose columns are the corresponding right eigenvectors, so that A*V = V*D
+		t3x1 Dr = t3x1();	t3x1 Di = t3x1();
+		t3x3 Vr = t3x3();	t3x3 Vi = t3x3();
+		//##MK::replace in the future by singular value decomposition for numerical robustness
+		if( eig( RctrspR, Dr, Di, Vr, Vi) == MYIMKL_EIG_SUCCESS ) {
+
+			/*cout << Dr << endl << endl;
+			cout << Di << endl << endl;
+			cout << Vr << endl << endl;
+			cout << Vi << endl << endl;*/
+
+			//check here https://de.mathworks.com/matlabcentral/fileexchange/43305-plane-fit#feedbacks
+			//author states to just give n = V(:,1); as normal
+			//V = V(:,2:end);
+			//however MATLAB documentation states that
+			//"By default eig does not always return the eigenvalues and eigenvectors in sorted order.
+			//Use the sort function to put the eigenvalues in ascending order and reorder the corresponding eigenvectors"
+			//IntelMKL dgeev also does not sort by default
+			//http://icl.cs.utk.edu/lapack-forum/viewtopic.php?f=2&t=550 so
+			//MK::pick the right normal vector corresponding to the smallest eigenvalue
+			//gives applied to this problem the direction with minimum point dispersion perpendicular to the plane
+			//##MK::only real part
+			//##MK::improve numerical stability
+			real_m33 thisval = min(min(Dr.a11,Dr.a21),Dr.a31);
+			if ( Dr.a11 == thisval ) {
+				t3x1 norm = t3x1(Vr.a11, Vr.a21, Vr.a31); //0-th column vector
+				out.normaldistance_parameterization( norm, pmean );
+				return true;
+			}
+			else if ( Dr.a21 == thisval ) {
+				t3x1 norm = t3x1(Vr.a12, Vr.a22, Vr.a32); //1-th column vector
+				out.normaldistance_parameterization( norm, pmean );
+				return true;
+			}
+			else {
+				t3x1 norm = t3x1(Vr.a13, Vr.a23, Vr.a33); //2-th column vector
+				out.normaldistance_parameterization( norm, pmean );
+				return true;
+			}
+		}
+		else {
+			return false;
+		}
+	}
+	else {
+		return false;
+	}
+}

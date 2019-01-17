@@ -69,6 +69,7 @@ struct spacebucket
 	void range_rball_noclear_nosort( const pos p, apt_xyz r, vector<pos> & candidates );
 	erase_log erase_rball( const p3d p, apt_xyz r );
 
+	void write_occupancy_raw();
 	size_t get_memory_consumption();
 };
 

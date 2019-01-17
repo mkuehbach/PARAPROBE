@@ -53,49 +53,37 @@
 <div class="section" id="what-is-paraprobe">
 <h2>What is PARAPROBE?<a class="headerlink" href="#what-is-paraprobe" title="Permalink to this headline">¶</a></h2>
 <div class="line-block">
-<div class="line">A software for data mining Atom Probe Tomography (APT) experiment data which sets</div>
-<div class="line">prime focus on scalable spatial range querying and computational geometry tasks</div>
-<div class="line">making use of scalable hierarchical parallelism.</div>
+<div class="line">A software for data mining Atom Probe Tomography (APT) experiment data. It sets prime focus on</div>
+<div class="line">applying scalable hierarchical parallelism to spatial range querying, clustering, atom probe</div>
+<div class="line">crystallography, and computational geometry tasks making use of scalable hierarchical parallelism.</div>
 </div>
 </div>
 <div class="section" id="what-are-the-user-benefits">
 <h2>What are the user benefits?<a class="headerlink" href="#what-are-the-user-benefits" title="Permalink to this headline">¶</a></h2>
 <div class="line-block">
-<div class="line"><strong>Unbiased descriptive spatial statistics</strong></div>
+<div class="line"><strong>Open source software</strong></div>
+<div class="line-block">
+<div class="line">Therefore no usage restriction, unlimited licences when running in parallel</div>
+<div class="line">surplus full functional transparency and modifiability.</div>
+</div>
+<div class="line"><strong>Reduced analysis bias</strong></div>
 <div class="line-block">
 <div class="line">Enabled by state of the art tip surface reconstruction surplus ion to surface distancing.</div>
 </div>
-<div class="line"><strong>Scalable performance</strong></div>
+<div class="line"><strong>Scalable performance, large datasets</strong></div>
 <div class="line-block">
-<div class="line">Owing to parallel implementation with rigorous hierarchical spatial data partitioning</div>
+<div class="line">Thanks to parallel implementation with rigorous hierarchical spatial data partitioning</div>
 <div class="line">strategy to improve the utilization of fast caches and ccNUMA-aware data placement policy.</div>
-</div>
-<div class="line"><strong>Open source software</strong></div>
-<div class="line-block">
-<div class="line">Therefore no usage restriction, no limited licences when running in parallel</div>
-<div class="line">surplus full functional transparency and modifiability.</div>
 </div>
 </div>
 </div>
 <div class="section" id="which-parallelization-concepts-are-employed">
 <h2>Which parallelization concepts are employed?<a class="headerlink" href="#which-parallelization-concepts-are-employed" title="Permalink to this headline">¶</a></h2>
-<p><strong>Process data parallelism</strong> — the Message passing interface (<a class="reference external" href="http://www.mcs.anl.gov/research/projects/mpi/">MPI</a>) is utilized.
-It processes each individual measurement via a single process. This enables to either distribute parameter sweeping studies of the same tip on practically hundred thousands of processes or to process trivially in parallel multiple tips using the same automatized analysis protocol. At runtime, MPI invokes library calls to communicate pieces of information between physically disjoint computers. Therefore, it requires installation and linking.</p>
-<p><strong>Shared memory thread data parallelism</strong> — the Open Multiprocessing (<a class="reference external" href="https://www.openmp.org/">OpenMP</a>) is used.
-It allows  to distribute the point data of each measurement spatially into disjoint logical chunks.
-These chunks are mapped to and stored in thread-local memory when processed in parallel.
-For some tasks the threads update explicitly data in the memory of other threads processing spatially adjacent points.
-In such cases, explicit care is taken to prevent data invalidation and reduce false sharing.
-OpenMP does not require installation because it builds on preprocessor directives, which get evaluated during the compilation stage.</p>
-<p><strong>Streaming instruction data parallelism aka SIMD</strong> — the <a class="reference external" href="https://developer.numscale.com/bsimd/documentation/v1.17.6.0/faq.html">BSIMD</a> portable vector intrinsics template library is used.
-Some core geometrical and numerical tasks can be accelerated further within each thread using vectorization.
-Such vectorization is realized via Single Instruction Multiple Data (SIMD) which makes use of highly problem-and-CPU-specific
-instructions, the so-called intrinsics. Their key idea is to apply processing operations on a packet of multiple data elements
-at once instead of sequentially. PARAPROBE employs <a class="reference external" href="https://developer.numscale.com/bsimd/documentation/v1.17.6.0/faq.html">BSIMD</a> in order to improve code portability by solving the problem that
-intrinsics have usually different names and implementation syntax for different CPUs. Upon compilation, the abstract BSIMD intrinsics
-commands are encoded into the specific CPU command realization available on the target architecture.</p>
-<blockquote>
-<div></div></blockquote>
+<p><strong>Process data parallelism</strong> via the Message Passing Interface (<a href="#id1"><span class="problematic" id="id2">MPI_</span></a>) API
+PARAPROBE processes each individual measurement through a single process. This enables to either distribute parameter sweeping studies of the same tip on practically hundred thousands of processes or to process trivially in parallel multiple tips using the same automatized analysis protocol. At runtime, MPI invokes library calls to communicate pieces of information between physically disjoint computers if necessary.
+As MPI is a library, it requires installation and linking.</p>
+<p><strong>Shared memory thread data parallelism</strong> via the Open Multi-Processing (<a href="#id3"><span class="problematic" id="id4">OpenMP_</span></a>) API.
+PARAPROBE partitions the point data of each measurement into spatially disjoint chunks. Explicit strategies are applied to map and place the data chunks in thread-local memory to reduce false sharing and performance degradation on resources with multiple ccNUMA layers. OpenMP builds on preprocessor directives through which the corresponding pragmas are translated during compilation. As such, OpenMP needs no installation.</p>
 </div>
 <div class="section" id="solid-hpc-background-literature">
 <h2>Solid HPC background literature<a class="headerlink" href="#solid-hpc-background-literature" title="Permalink to this headline">¶</a></h2>
@@ -112,12 +100,14 @@ commands are encoded into the specific CPU command realization available on the 
 </div>
 <div class="line-block">
 <div class="line">J. Reinders and J. Jeffers</div>
-<div class="line">High Performance Parallelism Pearls Volume One: Multicore and Many-Core Programming Approaches</div>
+<div class="line">High Performance Parallelism Pearls Volume One:</div>
+<div class="line">Multicore and Many-Core Programming Approaches</div>
 <div class="line">1st edition, 2014, Morgan Kaufmann</div>
 </div>
 <div class="line-block">
 <div class="line">J. Jeffers and J. Reinders</div>
-<div class="line">High Performance Parallelism Pearls Volume Two: Multicore and Many-Core Programming Approaches</div>
+<div class="line">High Performance Parallelism Pearls Volume Two:</div>
+<div class="line">Multicore and Many-Core Programming Approaches</div>
 <div class="line">1st edition, 2015, Morgan Kaufmann</div>
 </div>
 </div>

@@ -1,14 +1,11 @@
-**References**
-==============
-
 The method
 ^^^^^^^^^^
 
 **The method** and its key implementation.
  | M. Kühbach et al.
- | Scalable Parallelized Tools for Mining Atom Probe Tomography Data: 
- | Descriptive Spatial Statistics, Clustering Analyses, and Computational Geometry
- | in preparation Ultramicroscopy, 2018
+ | On Strong Scaling Parallelized Open Source Tools for Mining Atom Probe Tomography Data:
+ | Descriptive Spatial Statistics, Clustering Analyses, Atom Probe Crystallography, and Computational Geometry
+ | in preparation for Ultramicroscopy, Q1, 2019
 
 **Solid APT background**
  | B. Gault and M. P. Moody and J. M. Cairney and S. P. Ringer
@@ -23,17 +20,18 @@ The method
  
 Third-party contributions
 ^^^^^^^^^^^^^^^^^^^^^^^^^
-**DBScan sequential and threaded**
- | M. Ester and H.-P. Kriegel and J. Sander and X. Xu
- | A Density-Based Algorith for Discovering Clusters in Large Spatial Databases with Noise
- | Proceedings of the 2nd International Conference on 
- | Knowledge Discovery and Data Mining (KDD-96), 1996
-
+**Thread-parallelized DBSCAN --- HPDBSCAN**
  | M. Götz and C. Bodenstein and M. Riedel
  | HPDBSCAN: highly parallel DBSCAN
  | MLHPC15 Proceedings of the Workshop on Machine Learning in High-Performance Computing Environments
  | 2015
  | https://dx.doi.org/10.1145/2834892.2834894
+ 
+**DBScan sequential and threaded**
+ | M. Ester and H.-P. Kriegel and J. Sander and X. Xu
+ | A Density-Based Algorith for Discovering Clusters in Large Spatial Databases with Noise
+ | Proceedings of the 2nd International Conference on 
+ | Knowledge Discovery and Data Mining (KDD-96), 1996
  
 **Maximum separation method**
  | J. M. Hyde and C. A. English
@@ -53,7 +51,7 @@ Third-party contributions
  | Microscopy & Microanalysis, 2014, Vol 20, 1662-1671
  | https://dx.doi.org/10.1017/S1431927614013294
 
-**CGAL**
+**CGAL, the Computational Geometry Algorithms Library**
  | T. K. F. Da and S. Loriot and M. Yvinec
  | CGAL User and Reference Manual: 3D Alpha Shapes
  | 2017
@@ -71,10 +69,24 @@ Third-party contributions
  | 1994, 13, 1, 43-72
  | https://dx.doi.org/10.1145/174462.156635
 
+**Voro**
+ | C. H. Rycroft
+ | VORO++: A three-dimensional Voronoi cell library in C++
+ | Chaos 
+ | 2009, 19, 041111
+ | https://dx.doi.org/10.1063/1.3215722
+ | http://math.lbl.gov/voro++/
+
+**Mining crystallographic signal** in reconstruction space
+ | V. J. Araullo-Peters, A. Breen, A. V. Ceguerra, B. Gault, S. P. Ringer, J. M. Cairney
+ | A new systematic framework for crystallographic analysis of atom probe data
+ | Ultramicroscopy
+ | 2015, 154, 7-14
+ | https://dx.doi.org/10.1016/j.ultramic.2015.02.009
+
 **AABBTree**
  | Lohedges
  | https://github.com/lohedges/aabbcc
- 
 
 Computational geometry focused APT method development by other people
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -100,7 +112,9 @@ Computational geometry focused APT method development by other people
  
 Contact
 ^^^^^^^
-Feel free to contact me_ and allow me_ to identify whether PARAPROBE supplies functionalities which can cater also your analyses needs!
+Please feel free to contact me (using my MPIE_ or BiGmax_ contact details) to identify whether PARAPROBE supplies functionalities which can cater also your analyses needs!
 
- .. _me: https://www.mpie.de/person/51206/2656491
+
+ .. _MPIE: https://www.mpie.de/person/51206/2656491
+ .. _BiGmax: https://bigmax.iwww.mpg.de/39151/bigmax-software-engineering-consultant
 

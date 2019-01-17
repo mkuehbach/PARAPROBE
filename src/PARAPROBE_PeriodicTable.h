@@ -31,7 +31,9 @@
 #ifndef __PARAPROBE_PERIODICTABLE_H__
 #define __PARAPROBE_PERIODICTABLE_H__
 
-#include "PARAPROBE_Profiling.h"
+//#include "PARAPROBE_Profiling.h"
+#include "PARAPROBE_IntelMKL.h"
+
 
 class TypeSpecDescrStat;
 
@@ -45,7 +47,6 @@ struct mqrange
 	//~mqrange(){}
 
 	inline apt_real width();
-
 	inline bool inrange(const apt_real val);
 };
 
@@ -57,27 +58,35 @@ inline bool SortMQRangeAscending( const mqrange &aa1, const mqrange &aa2)
 }
 
 
+struct nuclid
+{
+	unsigned int id; //##MK::so far a dummy only but can be extended by adding pieces of information by user
+	nuclid() : id(0) {}
+	nuclid(const unsigned int _id) : id(_id) {}
+};
+
 
 class PeriodicTable
 {
 	//MK::implements a smart periodic table with which to handle range files and ion type identification
 	friend class TypeSpecDescrStat;
 public:
-	PeriodicTable(){
-		MaximumTypID = 0;
-		rangefile_loaded = false; //flag to prevent multiple reloads
-	}
-	~PeriodicTable(){}
+	PeriodicTable();
+	~PeriodicTable();
 
+	void load_periodictable();
 	unsigned int mq2ionname( const apt_real mq );
-
 	unsigned int ion_name2type( const string name );
 	string ion_type2name( const unsigned int type );
 	unsigned int get_maxtypeid();
 
+	void add_iontype_single_or_molecular( vector<string> const & in, mqrange const & ival );
+
 	bool read_rangefile( string ascii_io_fn );
+	bool read_rangefile2( string ascii_io_fn );
 
 private:
+	map<string, nuclid> NuclidTable;
 	map<string, unsigned int> IonTypes; //two way referencing to ease ranging
 	map<unsigned int, string> IonNames;
 	unsigned int MaximumTypID;
@@ -108,8 +117,9 @@ public:
 	TypeSpecDescrStat();
 	~TypeSpecDescrStat();
 
-	//bool define_iontask1(const string command, PeriodicTable const & pse ); //##MK::deprecated
-	bool define_iontask2(const string command, PeriodicTable const & pse );
+	bool define_iontask3(const string command, PeriodicTable const & pse );
+	bool define_iontask4(const string command, PeriodicTable const & pse );
+
 
 	//pair<string, unsigned int> target;	 	 //##MK::deprecated, the typeID of the specimen for which do perform spatial statistics, i.e. Al e.g. 0
 	map<string, unsigned int> trgcandidates; //the typeIDs of the central ions for which to perform spatial statistics

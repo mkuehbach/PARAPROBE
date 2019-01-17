@@ -33,7 +33,41 @@
 
 #include "PARAPROBE_HDF5.h"
 
+/*
 void reconstruction_xdmf( vector<vector<p3d>*> const & ppp,
 		vector<vector<unsigned int>*> const & lll, const string xdmf_io_fn );
+*/
+
+#define XDMF_HEADER_LINE1				"<?xml version=\"1.0\" ?>"
+#define XDMF_HEADER_LINE2				"<!DOCTYPE Xdmf SYSTEM \"Xdmf.dtd\" []>"
+#define XDMF_HEADER_LINE3				"<Xdmf xmlns:xi=\"http://www.w3.org/2003/XInclude\" Version=\"2.2\">"
+
+#define WRAPPED_XDMF_SUCCESS				+1
+#define WRAPPED_XDMF_IOFAILED				-1
+
+
+class xdmfHdl
+{
+//coordinating instance handling all (sequential) writing of XDMF metafiles detailing HDF5 additional metadata
+//for visualization for Paraview or VisIt
+public:
+	xdmfHdl();
+	~xdmfHdl();
+
+	//file generation and closing
+	int create_volrecon_file( const string xmlfn, const size_t nions, const string h5ref );
+	int create_iondistance_file( const string xmlfn, const size_t nions, const string h5ref );
+	int create_tipsurface_file( const string xmlfn, const size_t topo_nelements,
+			const size_t topo_dims, const size_t geom_dims, const string h5ref );
+	int create_voronoicell_vis_file( const string xmlfn, const size_t topo_nelements,
+			const size_t topo_dims, const size_t geom_dims, const size_t attr_dims, const string h5ref );
+	int create_voronoicell_vol_file( const string xmlfn, const size_t ncells, const string h5ref );
+
+	int create_voronoicell_debug_file( const string xmlfn, const size_t topo_nelements,
+			const size_t topo_dims, const size_t geom_dims, const size_t attr_dims, const string h5ref );
+
+private:
+	ofstream xdmfout;
+};
 
 #endif

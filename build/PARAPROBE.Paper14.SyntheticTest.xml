@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Parameters>
+	<!--for binary choices, 0 specifies off, 1 on-->
+	
+	<!--WHAT TYPE OF ANALYSIS TO DO-->
+	<InputFileformat>4</InputFileformat>
+	<!--0 nothing-->
+	<!--1 pos-->
+	<!--2 epos-->
+	<!--3 hdf5-->
+	<!--4 synthetic-->
+	<RAWFilenameIn>Synthetic.pos</RAWFilenameIn>
+	<!-- if Inputtype is not 4 synthetic file ending needs to match-->
+	<!-- the measured APT data the reader is adaptive if ends with epos will read binary epos and change endianness, otherwise rejected-->
+
+	<AnalysisMode>1</AnalysisMode>
+	<!--0 nothing-->
+	<!--1 work in reconstruction space ONLY THIS AT THE MOMENT-->
+		
+	<ReconstructionAlgorithm>1</ReconstructionAlgorithm>
+	<!--0 no reconstruction-->
+	<!--1 accept from synthetic dataset-->
+	<!--2 accept from pos ie x,y,z from pos are taken as ion coor in recon space-->
+	<!--3 accept from epos ie x,y,z from epos are taken as ion coor in recon space-->
+	<!--4 Bas et al. reconstruction requires epos file-->
+	<IdentifyIonType>1</IdentifyIonType>
+	<!--aka ranging based on rrng file specified below-->
+	<RRNGFilenameIn>PARAPROBE.Paper14.Ranging.rrng</RRNGFilenameIn>
+	
+	<SurfaceReconstructionType>1</SurfaceReconstructionType>
+	<!--0 no surface recon-->
+	<!--1 CGAL alphashape ONLY THIS CURRENTLY-->
+	<!--2 CGAL convex hull-->
+	<!--3 marching cube IGL-->
+	<!--4 read existent triangle hull-->
+	<SurfaceFilenameIn>PARAPROBE.Paper14.SimID.XXX1.vtk</SurfaceFilenameIn>
+	<!--raw file name in and surface need to be same-->
+	<AlphaShapeAlphaValueChoice>0</AlphaShapeAlphaValueChoice>
+	<!--0 default smallest alpha value to get a solid through data points-->
+	<!--1 use value which CGAL considers to be the optimal value-->
+		
+	<AnalysisCrystallographicInfo>0</AnalysisCrystallographicInfo>
+	<!--0 no crystallography analysis-->
+	<!--1 perform Vicente AraulloPeters et al method to extract crystallographic signal-->
+	
+	<AnalysisSpatDistrType>5</AnalysisSpatDistrType>
+	<!--0 no spatial statistics-->
+	<!--1 radial distribution function-->
+	<!--2 nearest neighbor 1NN-->
+	<!--3 RipleyK-->
+	<!--4 multiple k nearest neighbors will allow to compute with one call for instance 2th, 5th, 10th, 50th, 100th, 3333th nearest neighbor-->
+	<!--5 n-point spatial correlations for k nearest neighbor-->
+	<!--6 distribution number of local neighbors within spherical environment rmax beta stage this is a marginal distribution of a twodimensional statistics-->
+	<!--namely how many local neighbors to an ion within distance bin r, this is not rdf because in rdf local neighbor counts in r bin are summed for all atoms-->
+ 	<!--while in mode 6 discrete distribution of counts are given how the local density scatters this should allow to filter out spinodally decomposed regions-->
+	<!--list all single character numbers of tasks without space in one string to instruct all task at once 216 will perform 1NN RDF and NP correlations-->
+
+	<AnalysisClusteringType>0</AnalysisClusteringType>
+	<!--0 no clustering-->
+	<!--1 DBScan-->
+	<!--2 MaximumSeparationMethod ONLY THIS CURRENTLY-->
+	<!--3 Isosurface-based-->
+	
+	<AnalysisVolumeTessellation>0</AnalysisVolumeTessellation>
+	<!--0 no tessellation is constructed-->
+	<!--1 a Voronoi tessellation is generated but not stored-->
+	<!--2 a Voronoi tessellation IMPLEMENTED in tessHdl but NOT ACTIVATED is generated and all cells written to H5 file-->
+
+	<!--RECONSTRUCTION PARAMETER-->
+	<FlightLength>80.0</FlightLength>
+	<!--nm-->
+	<AtomicDensity>60.24</AtomicDensity>
+	<!--atoms/nm^3---9 point 4 7 times 10 to the power of minus 6 m cubic per mol-->
+	<EvaporationField>100.0</EvaporationField>
+	<!--V/nm, fake value was 40-->
+	<!--detection efficiency on (0,1)--->
+	<DetEffMin>0.45</DetEffMin>
+	<DetEffIncr>0.05</DetEffIncr>
+	<DetEffMax>0.55</DetEffMax>
+	<!--field factor-->
+	<KFMin>3.30</KFMin>
+	<KFIncr>0.20</KFIncr>
+	<KFMax>2.00</KFMax>
+	<!--image compression factor-->
+	<ICFMin>1.65</ICFMin>
+	<ICFIncr>0.1</ICFIncr>
+	<ICFMax>1.65</ICFMax>
+
+	<!--SURFACE RECONSTRUCTION PARAMETER if not otherwise mentioned in nanometer-->
+	<AdvIonPruneBinWidthMin>0.5</AdvIonPruneBinWidthMin>
+	<AdvIonPruneBinWidthIncr>0.5</AdvIonPruneBinWidthIncr>
+	<AdvIonPruneBinWidthMax>0.5</AdvIonPruneBinWidthMax>
+	<DebugComputeDistance>1</DebugComputeDistance>
+	<!--0 off, 1 on-->
+
+	<!--probing to at least max if max is integer multiple of radius 0 plus integer times incr otherwise probing to next integer-->
+	
+	<!--CRYSTALLOGRAPHY ANALYSIS PARAMETER-->
+	<CrystalloRadiusMax>2.000</CrystalloRadiusMax>
+	<!--defines spherical region about grid points probed-->
+	<SamplingGridBinWidthX>2.0</SamplingGridBinWidthX>
+	<SamplingGridBinWidthY>2.0</SamplingGridBinWidthY>
+	<SamplingGridBinWidthZ>2.0</SamplingGridBinWidthZ>
+	<ElevationAngleMin>-90.0</ElevationAngleMin>
+	<ElevationAngleIncr>1.0</ElevationAngleIncr>
+	<ElevationAngleMax>90.0</ElevationAngleMax>
+	<AzimuthAngleMin>0.0</AzimuthAngleMin>
+	<AzimuthAngleIncr>1.0</AzimuthAngleIncr>
+	<AzimuthAngleMax>360.0</AzimuthAngleMax>
+	<!--scans according to methods detailed in the paper spherical environment of atom projects candidates on hkl planes, bins, fft of histogram-->
+	<WindowingAlpha>8.0</WindowingAlpha>
+	<CrystalloHistoM>9</CrystalloHistoM>
+	<!--2 to power of m used for binning with addition of padding-->
+	<WindowingMethod>0</WindowingMethod>
+	<!--0 - rectangular window, high frequency resolution but also high side lobes-->
+	<!--1 - Kaiser window with window parameter alpha, lower frequency resolution but much lower side lobes-->
+	
+	
+	
+	<!--DESCRIPTIVE SPATIAL STATISTICS ANALYSIS PARAMETER-->
+	<DescrStatTasksCode>Al-Al;Sc-Sc;Al-Sc;Sc-Al</DescrStatTasksCode>
+	<SpatStatRadiusMin>0.00</SpatStatRadiusMin>	
+	<SpatStatRadiusIncr>0.05</SpatStatRadiusIncr>
+	<SpatStatRadiusMax>2.50</SpatStatRadiusMax>
+	<!--values in nanometer ie 0.0, 0.1, 10.0 means bin on 0.0 to at most 10.0 nm with 0.1 nm step-->
+	<SpatStatKNNOrder>100</SpatStatKNNOrder>
+	<!--which kth order nearest neighbor is desired for two point spatial statistics-->
+	<SpatStatMKNNCode>1;10;100</SpatStatMKNNCode>
+	<!--semicolon separated code of which kth order nearest neighbor is desired if mode is multi KNN-->
+	<SpatStatAdditionalLabelRandomization>0</SpatStatAdditionalLabelRandomization>
+	<!--if 1 rerun all task with labels randomized-->
+
+	<!--each individual descr analysis having target type and commaseparated against which types to test if not all X semicolon next task-->
+	<!--ie when FeMnC set several NN (Fe against Fe only, against all, against Mn, against C only one needs Fe,Fe;Fe,X;Fe,Mn;Fe,C-->
+
+	<!--CLUSTERING ANALYSIS PARAMETER-->
+	<ClusteringTasksCode>Sc-Sc</ClusteringTasksCode>
+	<!--see comment above for DescrStatTaskCode-->
+	<!--minimum number of ions included for cluster to be counted as valid Nmin includes central point-->
+	<ClustMaxSepDmaxMin>0.10</ClustMaxSepDmaxMin>
+	<ClustMaxSepDmaxIncr>0.05</ClustMaxSepDmaxIncr>
+	<ClustMaxSepDmaxMax>0.70</ClustMaxSepDmaxMax>
+	<!--in nm for each clustering task individual clustering analyses with different dmax in the aforementioned range are done-->
+	<ClustMaxSepNmin>5</ClustMaxSepNmin>
+	<!--currently neither dilatation nor erosion is applied-->
+	<ClustAPosterioriSpatStat>0</ClustAPosterioriSpatStat>
+	<!--if 1 perform a spatial distribution analysis on the clustered ions afterwards-->
+
+	<!--TESSELLATION PARAMETER-->
+	<SurfaceCellsCarvingRadius>1.0</SurfaceCellsCarvingRadius>
+	<!--in nm, specifies which cells in the analysis are discarded because they are too close to the tip surface
+
+	<!--PLOTING AND IO OPTIONS switched on if 1 switched off for all other values-->
+	<IOReconstruction>0</IOReconstruction>
+	<IOTriangulation>0</IOTriangulation>
+	<IOTriangulationBVH>0</IOTriangulationBVH>
+	<IOKDTreePartitioning>0</IOKDTreePartitioning>
+	<IOHKFilteredIons>0</IOHKFilteredIons>
+	<IOHKRawClusterID>0</IOHKRawClusterID>
+	<IOIonTipSurfDistances>0</IOIonTipSurfDistances>
+	<IOVoronoiDescrStats>0</IOVoronoiDescrStats>
+	<IOVoronoiCellPositions>0</IOVoronoiCellPositions>
+	<IOVoronoiTopoGeom>0</IOVoronoiTopoGeom>
+	<IOCrystallography>0</IOCrystallography>
+
+	<!--TIP SYNTHESIS-->
+	<SimRelBottomRadius>0.10</SimRelBottomRadius>
+	<SimRelTopRadius>0.05</SimRelTopRadius>
+	<SimRelBottomCapHeight>0.05</SimRelBottomCapHeight>
+	<SimRelTopCapHeight>0.05</SimRelTopCapHeight>
+	<!--in multiples of desired tip conical frustum height H which is computed automatically based on tip relative spacing-->
+	<SimMatrixLatticeConstant>0.404</SimMatrixLatticeConstant>
+	<!--in nanometer, currently fcc single crystalline lattice supported only-->
+	<SimNumberOfAtoms>2.0e9</SimNumberOfAtoms>
+	<!--how many atoms should be contained in the synthesized tip not accounting for detector eff-->
+	<SimDetectionEfficiency>1.0</SimDetectionEfficiency>
+	<SimFiniteSpatResolutionX>0.000</SimFiniteSpatResolutionX>
+	<SimFiniteSpatResolutionY>0.000</SimFiniteSpatResolutionY>
+	<SimFiniteSpatResolutionZ>0.000</SimFiniteSpatResolutionZ>
+	<!--variance of normal distributed scatter about ideal lattice position in nanometer-->
+	<SimNumberOfCluster>236570.0</SimNumberOfCluster>	
+	<SimClusterRadiusMean>2.0</SimClusterRadiusMean>
+	<SimClusterRadiusSigmaSqr>0.1</SimClusterRadiusSigmaSqr>
+	<!--BE CAREFUL currently distribution parameter not the mean and variance in nanometer-->
+	
+	<!--PERFORMANCE-->
+	<UseNUMABinding>1</UseNUMABinding>
+	<!--if 1 uses the numa library to bind threads to specific cores preventing context switching and improving locality-->
+</Parameters>

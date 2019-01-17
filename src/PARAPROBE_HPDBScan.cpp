@@ -885,8 +885,9 @@ cout << "Boundary contact analysis of all cluster done" << endl;
 */
 
 
-dbscanres HPDBSCAN::summarize2( TypeSpecDescrStat const & tskdetails, bool const * interior, sqb & vgrd, vector<p3dm1> & ioncloud,
-		const unsigned int maxtypeid, const unsigned int tid, const unsigned int rid )
+dbscanres HPDBSCAN::summarize2( TypeSpecDescrStat const & tskdetails, bool const * interior, sqb & vgrd,
+		vector<p3dm1> & ioncloud, const unsigned int maxtypeid, const unsigned int tid, const unsigned int rid,
+		h5Hdl & iohdl )
 {
     //MK::maximum separation method is related to DBScan but it is not DBScan
 	//specifically there is an additional requirement of having a minimum number of ions within the cluster
@@ -971,10 +972,9 @@ dbscanres HPDBSCAN::summarize2( TypeSpecDescrStat const & tskdetails, bool const
 
     //characterize cluster
     cout << "Post-processing cluster labeling and population into physical significant objects..." << endl;
-    clusterHdl nanogod;
-    nanogod.precipitates.reserve( clusters.size() );
 
     //mapping of HPDBScan cluster ID (which can be nonconsecutive) to index on nanogod.precipitate array
+    clusterHdl nanogod;
     map<size_t, size_t> cid2idx;
     size_t newlabel = 0;
     for( auto it = clusters.begin(); it != clusters.end(); ++it ) {
@@ -1017,10 +1017,14 @@ dbscanres HPDBSCAN::summarize2( TypeSpecDescrStat const & tskdetails, bool const
     for( auto jt = tskdetails.envcandidates.begin(); jt != tskdetails.envcandidates.end(); jt++) {
     	whichcand += jt->first;
     }
-    nanogod.report_size_distr( whichtarg, whichcand, tid, rid ); //reports all cluster with number of members positive if inside, negative if outside
+
+/*//##MK::deprecated VTK csv based output
+    nanogod.report_size_distr_csv( whichtarg, whichcand, tid, rid ); //reports all cluster with number of members positive if inside, negative if outside
     nanogod.report_size_distr2( whichtarg, whichcand, tid, rid, true ); //report CDF of cluster include those making contact with boundary
     nanogod.report_size_distr2( whichtarg, whichcand, tid, rid, false ); //report CDF of cluster do not include those making boundary contact
     nanogod.report_size_distr_vtk( whichtarg, whichcand, tid, rid );
+*/
+    nanogod.report_size_distr_hdf5( whichtarg, whichcand, tid, rid, iohdl );
 
     //flag ions as clustered
     unsigned int mxtypid = maxtypeid;
@@ -1038,7 +1042,7 @@ dbscanres HPDBSCAN::summarize2( TypeSpecDescrStat const & tskdetails, bool const
    	//while all others still have their original type
 
     //wrap up results
-    return dbscanres( corePoints, clusterPoints, noisePoints, static_cast<size_t>(clusters.size()), 0, 0.f ); //##MK::last two values dummies
+    return dbscanres( corePoints, clusterPoints, noisePoints, nanogod.precipitates.size(), 0, 0.f ); //##MK::last two values dummies
 }
 
 
@@ -1144,7 +1148,7 @@ void clusterHdl::boundary_contact_analysis( bool const * inside, sqb & smartgrd 
 }
 
 
-void clusterHdl::report_size_distr( const string whichtarget, const string againstwhich, const unsigned int tid, const unsigned int runid )
+void clusterHdl::report_size_distr_csv( const string whichtarget, const string againstwhich, const unsigned int tid, const unsigned int runid )
 {
 	string fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".MaxSepClustSzDistr."
 			+ whichtarget + "." + againstwhich + ".TskID." + to_string(tid) + ".RunID." + to_string(runid) + ".csv";
@@ -1250,7 +1254,7 @@ void clusterHdl::report_size_distr2( const string whichtarget, const string agai
 	if ( excludeboundary == false )
 		cout << "Wrote size distribution of " << val.size() << " cluster inside and outside" << endl;
 	else
-		cout << "Wrote size distribution of " << val.size() << " cluster inside and outside" << endl;
+		cout << "Wrote size distribution of " << val.size() << " cluster inside only" << endl;
 }
 
 
@@ -1258,8 +1262,12 @@ void clusterHdl::report_size_distr_vtk( const string whichtarget, const string a
 {
 	//MK::write VTK file showing barycenter of all synthesized cluster in reconstructed space
 	//includes particles outside actual tip
+	if ( precipitates.size() < 1 ) {
+		complaining("There are no precipitates to report!");
+		return;
+	}
 
-	string vtk_io_fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".MaxSepClustSzDistr."
+	string vtk_io_fn = "PARAPROBE.SimID." + to_string(Settings::SimID) + ".MaxSepClustSizeAndCentroids."
 				+ whichtarget + "." + againstwhich + ".TskID." + to_string(tid) + ".RunID." + to_string(runid) + ".vtk";
 
 	ofstream vtk;
@@ -1294,4 +1302,145 @@ void clusterHdl::report_size_distr_vtk( const string whichtarget, const string a
 	else {
 		cout << "VTK file of clustered particle positions was not written" << endl;
 	}
+}
+
+
+void clusterHdl::report_size_distr_hdf5( const string whichtarget, const string againstwhich,
+			const unsigned int tid, const unsigned int runid, h5Hdl & h5io )
+{
+	if ( precipitates.size() == 0 )
+		return;
+
+	//pull first all ions without boundary contact
+	vector<double> f64inn;
+	vector<double> f64out;
+	vector<float> f32inn;
+	vector<float> f32out;
+	size_t excluded = 0;
+	for( auto it = precipitates.begin(); it != precipitates.end(); ++it ) {
+		p3d bary = it->center_of_gravity();
+		if ( it->has_boundary_contact() == true ) {
+			excluded++;
+			f64out.push_back(fabs(static_cast<double>(it->n)));
+			f32out.push_back(bary.x);
+			f32out.push_back(bary.y);
+			f32out.push_back(bary.z);
+		}
+		else {
+			f64inn.push_back(static_cast<double>(it->n)); //no fabs because number of members are positive
+			f32inn.push_back(bary.x);
+			f32inn.push_back(bary.y);
+			f32inn.push_back(bary.z);
+		}
+	}
+
+	cout << "From a total of " << precipitates.size() << " cluster " << excluded << " have boundary contact!" << endl;
+
+	//report to HDF5 file
+	int status = 0;
+	string fwslash = "/";
+	string suffix = fwslash + whichtarget + "_" + againstwhich + "_" + to_string(runid);
+	string dsfn = "";
+	h5iometa ifo = h5iometa();
+	h5offsets offs = h5offsets();
+
+	//report number of members (size) for all precipitates with boundary contact
+	dsfn = PARAPROBE_CLUST_MAXSEP_SZOUT + suffix;
+	ifo = h5iometa( dsfn, f64out.size(), 1 );
+	status = h5io.create_contiguous_matrix_f64le( ifo );
+	offs = h5offsets( 0, f64out.size(), 0, 1, f64out.size(), 1 );
+	cout << "Reporting cluster size distro unsorted out cluster" << endl;
+	status = h5io.write_contiguous_matrix_f64le_hyperslab( ifo, offs, f64out );
+	cout << status << endl;
+	//report number of members (size) for all precipitates without boundary contact
+	dsfn = PARAPROBE_CLUST_MAXSEP_SZINN + suffix;
+	ifo = h5iometa( dsfn, f64inn.size(), 1 );
+	status = h5io.create_contiguous_matrix_f64le( ifo );
+	offs = h5offsets( 0, f64inn.size(), 0, 1, f64inn.size(), 1 );
+	cout << "Reporting cluster size distro unsorted inn cluster" << endl;
+	status = h5io.write_contiguous_matrix_f64le_hyperslab( ifo, offs, f64inn );
+	cout << status << endl;
+	//report precipitate approximate barycenter xyz positions
+	dsfn = PARAPROBE_CLUST_MAXSEP_XYZOUT + suffix;
+	ifo = h5iometa( dsfn, (f32out.size() / 3), 3 );
+	status = h5io.create_contiguous_matrix_f32le( ifo );
+	offs = h5offsets( 0, (f32out.size() / 3), 0, 3, (f32out.size() / 3), 3 );
+	cout << "Reporting xyz positions unsorted out cluster" << endl;
+	status = h5io.write_contiguous_matrix_f32le_hyperslab( ifo, offs, f32out );
+	cout << status << endl;
+	f32out = vector<float>();
+	//report precipitate approximate barycenter xyz positions
+	dsfn = PARAPROBE_CLUST_MAXSEP_XYZINN + suffix;
+	ifo = h5iometa( dsfn, (f32inn.size() / 3), 3 );
+	status = h5io.create_contiguous_matrix_f32le( ifo );
+	offs = h5offsets( 0, (f32inn.size() / 3), 0, 3, (f32inn.size() / 3), 3 );
+	cout << "Reporting xyz positions unsorted inn cluster" << endl;
+	status = h5io.write_contiguous_matrix_f32le_hyperslab( ifo, offs, f32inn );
+	cout << status << endl;
+	f32inn = vector<float>();
+
+	//compute CDFs of inn, reuse f64out and f64inn, ultimately insert f64out in f64inn
+	double cumsum = 0.f;
+	if ( f64inn.size() > 1 ) {
+		//MK::full sort is required for CDF, however doing it inside C
+		//doing it here will be much faster for large datasets than through Excel or Origin
+		sort( f64inn.begin(), f64inn.end() ); //ascending is default
+
+		cumsum = 0.f;
+		for( auto it = f64inn.begin(); it != f64inn.end(); ++it )
+			cumsum += *it;
+
+		vector<double> f64cdf( 3*f64inn.size(), 0.f );
+		double size_norm = 1.f / ( cumsum / static_cast<double>(f64inn.size()) ); //##MK::division by zero no longer possible because already out if there were no precipitates
+		double pop_norm = 1.f / static_cast<double>(f64inn.size());
+		cumsum = 0.f;
+		size_t i = 0;
+		for( auto it = f64inn.begin(); it != f64inn.end(); ++it, ++i ) {
+			cumsum += 1.f;
+			f64cdf.at(3*i+0) = *it;
+			f64cdf.at(3*i+1) = *it * size_norm;
+			f64cdf.at(3*i+2) = cumsum * pop_norm;
+		}
+		//report CDF for inn cluster only
+		dsfn = PARAPROBE_CLUST_MAXSEP_SZINN_CDF + suffix;
+		ifo = h5iometa( dsfn, (f64cdf.size() / 3), 3 );
+		status = h5io.create_contiguous_matrix_f64le( ifo );
+		offs = h5offsets( 0, (f64cdf.size() / 3), 0, 3, (f64cdf.size() / 3), 3 );
+		cout << "Reporting cluster CDF inn precipitates" << endl;
+		status = h5io.write_contiguous_matrix_f64le_hyperslab( ifo, offs, f64cdf );
+		cout << status << endl;
+		f64cdf = vector<double>();
+	}
+	//add boundary contact precipitates to get also classical "biased" size distribution with partially truncated guys for comparison
+	f64inn.insert( f64inn.end(), f64out.begin(), f64out.end() );
+	f64out = vector<double>();
+
+	//MK::full sort is required for CDF, however doing it inside C
+	//doing it here will be much faster for large datasets than through Excel or Origin
+	sort( f64inn.begin(), f64inn.end() ); //ascending is default
+
+	cumsum = 0.f;
+	for( auto it = f64inn.begin(); it != f64inn.end(); ++it )
+		cumsum += *it;
+
+	vector<double> f64cdf( 3*f64inn.size(), 0.f );
+	double size_norm = 1.f / ( cumsum / static_cast<double>(f64inn.size()) );
+	double pop_norm = 1.f / static_cast<double>(f64inn.size());
+	cumsum = 0.f;
+	size_t i = 0;
+	for( auto it = f64inn.begin(); it != f64inn.end(); ++it, ++i ) {
+		cumsum += 1.f;
+		f64cdf.at(3*i+0) = *it;
+		f64cdf.at(3*i+1) = *it * size_norm;
+		f64cdf.at(3*i+2) = cumsum * pop_norm;
+	}
+	//report CDF for inn cluster only
+	dsfn = PARAPROBE_CLUST_MAXSEP_SZALL_CDF + suffix;
+	ifo = h5iometa( dsfn, (f64cdf.size() / 3), 3 );
+	status = h5io.create_contiguous_matrix_f64le( ifo );
+	offs = h5offsets( 0, (f64cdf.size() / 3), 0, 3, (f64cdf.size() / 3), 3 );
+	cout << "Reporting cluster CDF all precipitates" << endl;
+	status = h5io.write_contiguous_matrix_f64le_hyperslab( ifo, offs, f64cdf );
+	cout << status << endl;
+	f64cdf = vector<double>();
 }

@@ -32,7 +32,7 @@
 #ifndef __PARAPROBE_MATH_H__
 #define __PARAPROBE_MATH_H__
 
-#include "PARAPROBE_Histogram.h"
+#include "PARAPROBE_NPointCorrelations3D.h"
 
 class mathHdl
 {
@@ -44,6 +44,7 @@ public:
 	vector<apt_real> quantiles_nosort( vector<apt_real> const & in, vector<apt_real> const & q );
 
 	apt_real closestPointOnTriangle( const tri3d face, const p3d src );
+	bool fit_leastsqr_plane3d( vector<p3d> const & in, p3d & pplane, plane3d & out );
 };
 
 #endif
